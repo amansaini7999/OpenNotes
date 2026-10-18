@@ -1,176 +1,222 @@
+<div align="center">
+
 # OpenNotes
 
-A free, independently implemented, local-first notebook PWA for handwriting and
-PDF annotation. Built with **TypeScript, React and Canvas 2D**, designed for iPad
-and desktop Chrome. No account, server-side database, analytics, subscriptions,
-CDN assets, or cloud service is required.
+### A little room to think.
 
-OpenNotes is not affiliated with Goodnotes and does not contain its application
-code or branding. This is a usable first version, not feature parity with
-Goodnotes.
+**An open-source notebook for handwriting, sketches, and PDF annotation.**
 
-## Run locally on Windows
+Free to use. Yours to build on. Your notes stay on your device.
 
-Requires Node.js **24.11+** (tested) and npm. Internet access is needed to install
-development dependencies once; normal app use is local.
+[![License: MIT](https://img.shields.io/badge/License-MIT-28594e.svg)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-20232a?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![Offline-first PWA](https://img.shields.io/badge/PWA-Offline--first-28594e)](#offline-by-design)
+
+[Get started](#get-started) · [Features](#features) · [Use on iPad](#use-on-ipad) · [Contribute](#contributing)
+
+</div>
+
+---
+
+OpenNotes gives your ideas a place to grow: jot down a thought, sketch a plan,
+or mark up a PDF. Install it as a web app and keep working offline.
+No account, subscription, or cloud service required.
+
+## Features
+
+- **Write naturally** — pressure-sensitive ink, a translucent highlighter,
+  whole-stroke erasing, and undo/redo.
+- **Make it yours** — named notebooks, colorful covers, multiple pages, and
+  dotted, ruled, or plain paper.
+- **Bring your documents** — import PDFs, annotate their pages, and export
+  your work as a PDF.
+- **Move around freely** — pan, zoom, fit a page to the screen, and switch
+  to Pencil-only drawing when you want fingers to navigate.
+- **Keep ownership** — local autosave, editable `.opennotes` backups, and
+  restore/import without overwriting existing notebooks.
+- **Work offline** — application assets and PDF resources are cached locally.
+  No external fonts, CDNs, or runtime API calls.
+- **Use your browser** — responsive layouts for desktop and tablet, keyboard
+  shortcuts, and installation to your Home Screen or desktop.
+
+## Get started
+
+### Requirements
+
+- Node.js **24.11 or newer in the 24.x line** (tested).
+- npm.
+- A current browser with IndexedDB, service workers, and Web Locks.
+  Automated browser tests cover Chrome and an iPad-sized WebKit configuration.
 
 ```powershell
+git clone https://github.com/amansaini7999/OpenNotes.git
+Set-Location OpenNotes
 npm ci
 npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:4173** in Chrome. Use the browser's Install option to add
-OpenNotes as a standalone app. Wait for the service worker to cache the build
-before disconnecting; Help & install reports when offline setup is complete.
+Open **http://127.0.0.1:4173** in Chrome and create your first notebook.
+Use Chrome's Install option to open OpenNotes as a standalone app.
 
-After that, writing, PDF import/export, backups and reopening work without
-internet. If the local server is stopped, an already installed/cached app can
-still launch offline, provided its browser data has not been cleared. Keep the
-same address and port: `localhost` and `127.0.0.1` have separate storage.
+Internet access is needed to download dependencies initially, not for everyday
+writing. Keep the same address and port: `localhost` and `127.0.0.1` are
+different storage locations.
 
-Do **not** double-click `dist/index.html`. Service workers and storage
-coordination require localhost or a trusted HTTPS origin.
+## Offline by design
 
-For development, run `npm run dev`. The development server is not the production
-offline app; use a production build for offline validation.
+OpenNotes stores notebooks in **IndexedDB on your device**. A service worker
+caches the production app, including PDF processing resources, so writing,
+backups, and PDF import/export work offline after the initial load.
 
-## Use on iPad without public hosting
+1. Open the production app from localhost or trusted HTTPS.
+2. Check **Help & install** for confirmation that offline setup is complete.
+3. Install the app, then test reopening it without a network connection.
 
-An iPad's `localhost` refers to the iPad, not your PC. It needs a one-time visit
-to your PC over **trusted HTTPS on your local Wi-Fi**, or another trusted HTTPS
-address. Public internet hosting is not required.
+Once cached, the app can reopen without the local server running, provided
+the browser retains its application data. No public hosting is required for
+local desktop use.
 
-One local setup option is [mkcert](https://github.com/FiloSottile/mkcert). Install
-it separately from its official distribution, then:
+> **Keep a backup.** Local storage is not a backup service. Clearing browser
+> data, changing the app's address, removing the app, or storage eviction can
+> remove notes. Use **Back up everything** regularly and save the exported
+> `.opennotes` file somewhere safe.
+
+The save indicator confirms when a local transaction completes. Strokes are
+saved after pointer release; an interrupted in-progress stroke is discarded.
+Storage failures are shown explicitly, with retry and backup recovery options.
+Only one tab may edit the library at a time.
+
+## Use on iPad
+
+Open OpenNotes from a **trusted HTTPS address** in Safari, then choose
+**Share → Add to Home Screen**. Wait for offline setup to complete before
+disconnecting.
+
+You can serve it from your own PC over local Wi-Fi; public hosting is optional.
+The initial setup still requires a secure connection. An iPad's `localhost`
+points to the iPad itself, not your PC.
+
+<details>
+<summary><strong>Local Wi-Fi setup from Windows</strong></summary>
+
+Install [mkcert](https://github.com/FiloSottile/mkcert) from its official
+distribution, then run:
 
 ```powershell
 mkcert -install
 New-Item -ItemType Directory -Force .local
-# Replace 192.168.1.20 with your PC's LAN IP. Keep a stable/reserved IP.
+# Replace this example IP with your PC's LAN IP.
 mkcert -cert-file .local\tls.crt -key-file .local\tls.key localhost 127.0.0.1 192.168.1.20
 $env:OPENNOTES_HTTPS = '1'
 npm run preview -- --host 0.0.0.0
 ```
 
-Allow access on your private network if Windows Firewall prompts. Install and
-explicitly trust **only the mkcert root CA certificate** on your iPad, following
-mkcert's iOS instructions. Never transfer or publish the CA private key
-(`rootCA-key.pem`) or your TLS key. All files under `.local` are git-ignored.
+- Keep a stable or reserved LAN IP and allow access on your private network
+  if Windows Firewall prompts.
+- Follow mkcert's iOS instructions to install and explicitly trust its root
+  CA **certificate** on your iPad.
+- Never transfer or publish `rootCA-key.pem` or your TLS private key.
+  The project's `.local` directory is git-ignored.
+- Visit `https://192.168.1.20:4173` in Safari and add it to the Home Screen.
+- Fix certificate warnings rather than bypassing them; plain HTTP LAN access
+  is not a reliable secure PWA setup.
+- To return your shell to normal HTTP mode, run
+  `Remove-Item Env:OPENNOTES_HTTPS`.
 
-In Safari, visit `https://192.168.1.20:4173`, then Share → Add to Home Screen.
-Wait until Help & install confirms offline readiness. Close and reopen the
-installed app and test in Airplane Mode. Notes belong to that iPad's browser
-storage; PC notes are not automatically synced. Use editable backups to transfer
-them. When finished serving HTTPS, clear the shell flag with
-`Remove-Item Env:OPENNOTES_HTTPS`.
+</details>
 
-Certificate warnings must be fixed, not bypassed: an untrusted certificate or
-plain HTTP LAN address does not provide a reliable secure PWA environment.
+Each device keeps its own notebooks. Transfer them using editable backups;
+there is no automatic cross-device sync.
 
-## Included
+**Device testing:** real Apple Pencil responsiveness, palm rejection, Home
+Screen behavior, and large-document performance still need physical-iPad
+validation. Browser emulation does not establish hardware compatibility.
 
-- Notebook creation, cover colors, search, rename and confirmed deletion.
-- Multiple pages with dotted, ruled and plain paper.
-- Pressure-sensitive pen, translucent highlighter and whole-stroke eraser.
-- Page-scoped undo/redo (up to 50 actions during the current session).
-- Mouse/touch/Pencil input, a Pencil-only drawing mode, two-finger pan/zoom,
-  zoom controls and page fitting. Live ink is rendered imperatively, outside
-  React's render loop.
-- Transactional IndexedDB autosave with explicit saving/error states, backup
-  recovery on write failure, and a single-writer lock to prevent concurrent tabs
-  from overwriting notes.
-- PDF import up to **30 MB / 50 pages** and PDF export. Imported pages are
-  rasterized one at a time; exported PDFs preserve appearance, not searchable
-  original text or editable PDF annotations.
-- Editable `.opennotes` JSON backups, including all pages and images. Import
-  creates new notebook/page identities and does not overwrite existing notes.
-- Offline application and PDF worker/font/CMap/WASM assets bundled locally.
-- Persistent storage request, responsive layout, keyboard shortcuts and
-  accessible controls/dialogs.
+## Keyboard shortcuts
 
-## Data safety and limitations
+| Action | Shortcut |
+| --- | --- |
+| Pen | `P` |
+| Highlighter | `H` |
+| Stroke eraser | `E` |
+| Pan | `V` |
+| Undo | `Ctrl` / `Cmd` + `Z` |
+| Redo | `Ctrl` / `Cmd` + `Shift` + `Z` |
 
-**Local storage is not a backup.** Clearing browser data, removing the app,
-changing origin, or browser storage eviction can lose notebooks. Use
-**Back up everything** regularly. Persistent storage requests may be denied and
-do not protect against deliberate deletion.
+Two fingers pan and zoom. Enable **Pencil only** to use fingers for navigation
+instead of drawing.
 
-“Saved on this device” appears after the IndexedDB transaction completes. A
-stroke is committed on pointer release; an interrupted/cancelled in-progress
-stroke is discarded. The app does not promise crash-proof retention of a stroke
-still being drawn. Do not close during imports/exports or while saving.
+## Current scope
 
-There is no cloud sync, handwriting recognition, text tool, lasso, audio
-recording, collaboration, or `.goodnotes` import/export. Apple Pencil advanced
-features and palm rejection depend on browser/device behavior. They are not
-equivalent to native PencilKit and require physical-iPad testing.
+- PDF import supports files up to **30 MB and 50 pages**.
+- Imported PDF pages are rasterized. Export preserves their appearance, not
+  selectable source text or editable PDF annotations.
+- Undo/redo retains up to 50 actions per page during the current session.
+- Editable backups use OpenNotes' own `.opennotes` format.
+- Cloud sync, handwriting recognition, typed text, lasso selection, audio
+  recording, and collaboration are not included yet.
 
-## Development and tests
+## Development
+
+```powershell
+npm run dev
+```
+
+Use a production build, rather than the development server, to validate
+offline installation. Opening `dist/index.html` directly does not provide
+the secure context required by the app.
+
+### Project structure
+
+| Location | Purpose |
+| --- | --- |
+| [src/model.ts](./src/model.ts) | Types, runtime validation, and pure document/ink functions |
+| [src/storage.ts](./src/storage.ts) | Atomic, serialized IndexedDB persistence |
+| [src/render.ts](./src/render.ts) | Canvas page and stroke rendering |
+| [src/files.ts](./src/files.ts) | PDF and backup import/export |
+| [src/hooks/](./src/hooks/) | Storage coordination and PWA lifecycle |
+| [src/components/](./src/components/) | Notebook library, editor, drawing surface, and dialogs |
+| [tests/](./tests/) | Browser workflow tests |
+
+React manages the interface; live ink rendering stays outside React's render
+loop. Document transformations and geometry use pure functions, with
+persistence and file operations kept in separate modules.
+
+### Run checks
 
 ```powershell
 npm test
 npm run check
 npm run build
-# Install WebKit once if missing; Chrome tests use installed Google Chrome.
+# One-time download for WebKit tests; Chrome tests use installed Google Chrome.
 npx playwright install webkit
 npm run test:e2e
 ```
 
-- Unit tests cover document validation, backup identity collisions, pure eraser
-  geometry, pressure widths, queued saves, image persistence and corrupt data.
-- Playwright covers Chrome plus an iPad-sized WebKit configuration: handwriting
-  with synthetic mouse input, undo/redo, erasing, reload persistence, offline
-  startup and offline PDF operations, backup recovery, malformed input,
-  concurrent-tab protection, storage failure and responsive layouts.
-- Browser emulation is **not physical iPad certification**. Test Apple Pencil
-  latency, palm rejection, two-finger gestures, Home Screen installation, memory
-  pressure with realistic PDFs, and save/reopen in Airplane Mode on real hardware.
+Tests cover ink geometry and rendered pixels, pressure input, multi-touch zoom,
+document validation, persistence, offline startup, offline PDF operations,
+backup recovery, storage failures, concurrent tabs, and responsive layouts.
+Chromium-specific input-injection tests are intentionally skipped in WebKit.
 
-Latest local validation: **18 unit tests passed**, strict TypeScript and the
-production build passed, and **26 browser tests passed**. Two additional WebKit
-cases are intentionally skipped because pressure/multi-touch injection uses
-Chromium's CDP; those cases pass in Chrome. Ink assertions inspect rendered
-canvas pixels as well as persisted data. `npm audit` reported zero known
-vulnerabilities at validation time.
+## Contributing
 
-### Modules
+Contributions are welcome: code, documentation, accessibility improvements,
+bug reports, and real-device testing all help.
 
-| Module | Responsibility |
-| --- | --- |
-| `src/model.ts` | Types, runtime schemas and pure document/ink functions |
-| `src/storage.ts` | Serialized, atomic IndexedDB persistence; separate image records |
-| `src/render.ts` | Canvas page/stroke rendering |
-| `src/files.ts` | Local PDF and backup import/export |
-| `src/hooks/` | Storage lifecycle, single-writer coordination, PWA lifecycle |
-| `src/components/` | Library, notebook editor, drawing surface and modal UI |
+1. [Open an issue](https://github.com/amansaini7999/OpenNotes/issues) to report
+   a bug or discuss a substantial change.
+2. Fork the repository and create a focused branch.
+3. Keep TypeScript types strict, separate side effects from document logic,
+   and add tests for changed behavior.
+4. Run the checks above and open a pull request describing the change.
 
-No proprietary binaries, notebook samples or personal research dumps are
-included in the repository.
-
-## What REA established
-
-Static investigation informed the choice to evaluate a browser architecture:
-
-- The installed Windows 2.4.5.0 main assembly is managed .NET 8; member inventory
-  includes WebView2 hosting types. Identity evidence:
-  `ev_c5d5678d101625e0d7c510e70ae6d3c2cbece310f1f17284084e04d6f78b5f5a`.
-- The supplied Android APK reports package `com.goodnotes.android.app`, version
-  `1.0.32.0 (v152089)`. Its decoded manifest declares a Trusted Web Activity
-  launcher and Android browser-helper components. Evidence:
-  `ev_6c812880e6192be54620484848465f53bd0da1bdc49f32d106cbe9711bc5781b`.
-  APK signature verification was **not performed**.
-- A supplied `.goodnotes` export is a ZIP containing notebook/search data,
-  attachments, a thumbnail and `.pb` index/schema files. Evidence:
-  `ev_d31bcd1cd8b343ea11109d608b64e7083ce12148a6ffd347b2d35e8aa83f8fbb`.
-  Protobuf-like filenames do not establish the complete format.
-
-These observations do not recover the native iPad implementation, establish
-handwriting algorithms, or prove feature equivalence. OpenNotes' renderer,
-storage schema and UI are independent design choices. Original evidence is
-retained outside the repository in the development session; the supplied
-installers/APK/ZIP/sample were removed from the workspace as requested.
+For drawing or offline bugs, include your browser version, device, reproduction
+steps, and whether the app was running in a tab or installed mode. Do not
+include private notebooks or personal information.
 
 ## License
 
-MIT; see [LICENSE](./LICENSE). Bundled dependencies retain their own licenses.
+OpenNotes is open source under the **[MIT License](./LICENSE)**.
+Use it, modify it, and share it. Dependencies retain their respective licenses.
