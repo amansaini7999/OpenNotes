@@ -13,7 +13,7 @@ Free to use. Yours to build on. Your notes stay on your device.
 [![React](https://img.shields.io/badge/React-20232a?logo=react&logoColor=61DAFB)](https://react.dev/)
 [![Offline-first PWA](https://img.shields.io/badge/PWA-Offline--first-28594e)](#offline-by-design)
 
-[Get started](#get-started) · [Features](#features) · [Use on iPad](#use-on-ipad) · [Contribute](#contributing)
+[Open OpenNotes](https://amansaini7999.github.io/OpenNotes/) · [Get started](#get-started) · [Features](#features) · [Contribute](#contributing)
 
 </div>
 
@@ -41,6 +41,16 @@ No account, subscription, or cloud service required.
   shortcuts, and installation to your Home Screen or desktop.
 
 ## Get started
+
+**Use the app:** visit **https://amansaini7999.github.io/OpenNotes/**. On iPad,
+open it in Safari and choose **Share → Add to Home Screen**. No account,
+certificate setup, or local server is needed. Wait for **Help & install** to
+confirm offline readiness before disconnecting.
+
+The website delivers application files; your notebooks remain in your browser.
+GitHub Pages may log normal website requests, including IP addresses.
+
+### Run your own copy
 
 ### Requirements
 
@@ -90,11 +100,11 @@ Only one tab may edit the library at a time.
 
 ## Use on iPad
 
-Open OpenNotes from a **trusted HTTPS address** in Safari, then choose
+Open **https://amansaini7999.github.io/OpenNotes/** in Safari, then choose
 **Share → Add to Home Screen**. Wait for offline setup to complete before
 disconnecting.
 
-You can serve it from your own PC over local Wi-Fi; public hosting is optional.
+Alternatively, serve it from your own PC over local Wi-Fi; public hosting is optional.
 The initial setup still requires a secure connection. An iPad's `localhost`
 points to the iPad itself, not your PC.
 
@@ -167,6 +177,18 @@ npm run dev
 Use a production build, rather than the development server, to validate
 offline installation. Opening `dist/index.html` directly does not provide
 the secure context required by the app.
+
+### Automatic publishing
+
+Pull requests run unit tests, a production build, and Chrome/WebKit browser
+tests. Every push or merge to `main` runs the same checks and deploys the passing
+build to **https://amansaini7999.github.io/OpenNotes/** through GitHub Actions.
+Failed validation prevents deployment; pull requests never deploy the live site.
+
+The Pages build uses `OPENNOTES_BASE_PATH=/OpenNotes/`. Local builds default to
+`/`. Keep the public origin stable so users retain access to their local notes.
+Existing installed apps show an update notice when a new version is available;
+finish writing, wait for a saved state, then close all app windows and reopen.
 
 ### Project structure
 

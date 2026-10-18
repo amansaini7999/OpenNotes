@@ -47,7 +47,7 @@ async function strokeCount(page: Page): Promise<number> {
   })
 }
 
-test.beforeEach(async ({ page }) => { await page.goto('/') })
+test.beforeEach(async ({ page }) => { await page.goto('./') })
 
 test('creates, draws, undoes/redoes, changes pages, and persists after reload', async ({ page }) => {
   await createNotebook(page)
@@ -256,7 +256,7 @@ test('rejects invalid backups visibly without modifying notebooks', async ({ pag
 test('prevents concurrent editors from overwriting the same local library', async ({ page, context }) => {
   await createNotebook(page)
   const other = await context.newPage()
-  await other.goto('/')
+  await other.goto('./')
   await expect(other.getByRole('alert')).toContainText('already open in another tab')
   await expect(other.getByRole('button', { name: 'New notebook', exact: true })).toBeDisabled()
   await other.close()
