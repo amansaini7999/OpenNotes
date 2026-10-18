@@ -23,5 +23,6 @@ export default defineConfig({
   projects: [
     { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
     { name: 'ipad-webkit', use: { ...devices['iPad Pro 11'], browserName: 'webkit' } },
+    { name: 'iphone-webkit', testMatch: '**/mobile-input.spec.ts', use: { ...devices['iPhone 13'], browserName: 'webkit' } },
   ],
 })

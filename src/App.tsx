@@ -10,12 +10,14 @@ import { Dialog } from './components/Dialog'
 import { InstallApp } from './components/InstallApp'
 import { useViewportHeight } from './hooks/useViewportHeight'
 import { planBackupRestore, type RestorePlan, type RestoreDecision } from './backup'
+import { usePersistence } from './hooks/usePersistence'
 
 type Modal = 'create' | 'help' | 'delete' | null
 
 export default function App() {
   useViewportHeight()
   const { library, status, error: storageError, update, retry } = useLibrary()
+  const persistence = usePersistence(Boolean(library?.notebooks.length))
   const pwa = usePwa()
   const [activeId, setActiveId] = useState<string | null>(() => new URLSearchParams(location.hash.slice(1)).get('notebook'))
   const [modal, setModal] = useState<Modal>(null)
@@ -162,6 +164,13 @@ export default function App() {
     {modal === 'help' && <Dialog title="Help" onClose={() => setModal(null)}>
       <div className="help-content">
         <p>{pwa.offlineReady ? 'Ready for offline use.' : 'Keep the app open online until offline setup completes.'}</p>
+        <p role="status" data-testid="storage-protection">
+          {persistence.status === 'checking' ? 'Checking browser storage protection…' :
+            persistence.status === 'protected' ? 'Browser persistence is granted. This reduces automatic eviction; it is not an external-file backup.' :
+            persistence.status === 'best-effort' ? 'Browser persistence is not granted. Notes are local, but this browser may evict them. Export backups regularly.' :
+            persistence.status === 'unsupported' ? 'This browser cannot report persistent-storage protection. Export backups regularly.' :
+            persistence.error}
+        </p>
         <p>Notes are stored in this browser. Clearing site data or storage eviction can delete them. Export editable backups regularly; there is no automatic cloud sync.</p>
         <p>On iPad, swipe left/right with one or two fingers to turn a fitted page. Pinch to zoom; use two fingers to pan when zoomed. Touch navigation pauses during pen input and briefly afterward.</p>
         <div className="document-actions"><InstallApp offlineReady={pwa.offlineReady} /></div>

@@ -36,6 +36,7 @@ separate from storage, file processing, and browser lifecycle effects.
 | [navigation.ts](../src/navigation.ts) | Device defaults and page-turn recognition |
 | [images.ts](../src/images.ts) | Proportional inline-image placement and bounds |
 | [backup.ts](../src/backup.ts) | SHA-256 content identity and reviewed backup restore |
+| [persistence.ts](../src/persistence.ts) | Actual browser persistence capability/grant checks |
 | [hooks/](../src/hooks/) | Storage coordination, PWA and viewport lifecycle |
 | [components/](../src/components/) | Library, editor, writing surface, and dialogs |
 | [tests/](../tests/) | Browser workflows |
@@ -60,7 +61,10 @@ npm run test:e2e
 Tests cover document and geometry functions, storage failures and recovery,
 rendered ink, offline workflows, imports/exports, device-specific layouts,
 touch navigation, and independent panels. CDP input tests run only in Chromium;
-WebKit emulation is not physical Apple Pencil certification.
+WebKit emulation is not physical Apple Pencil certification. A focused iPhone
+WebKit project exercises native touchscreen contacts and persistence behavior;
+Chrome/CDP regressions exercise real pointer-capture loss and continued pen
+samples rather than treating capture loss as a completed stroke.
 
 To test a project-relative build:
 

@@ -50,6 +50,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   const viewRef = useRef<View>({ x: 0, y: 0, scale: 1 })
   const [view, setView] = useState(viewRef.current)
   const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean } | null>(null)
+  const lastPointer = useRef<PointerEvent | null>(null)
+  const inputHandlers = useRef<{ move: (event: PointerEvent) => void; finish: (event: PointerEvent, cancelled: boolean) => void } | null>(null)
   const touches = useRef(new Map<number, Position>())
   const gesture = useRef<Gesture | null>(null)
   const swipe = useRef<Swipe | null>(null)
@@ -282,11 +284,12 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       eraser: tool === 'eraser',
       stroke: { id: crypto.randomUUID(), tool: tool === 'highlighter' ? 'highlighter' : 'pen', color, width, points: [pointFrom(event.nativeEvent)] },
     }
+    lastPointer.current = event.nativeEvent
     clearLive()
     drawLive()
   }
 
-  const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const pointerMove = (event: PointerEvent) => {
     if (event.pointerType === 'pen') {
       lastPenAt.current = performance.now()
       dismissTouches()
@@ -296,6 +299,10 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       return
     }
     if (active.current?.type === 'pen' && event.pointerType !== 'pen') return
+    if (active.current?.type === 'pen' && active.current.id === event.pointerId && event.buttons === 0 && event.pressure === 0) {
+      finishPointer(event, true)
+      return
+    }
     if (touches.current.has(event.pointerId)) {
       touches.current.set(event.pointerId, localPosition(event))
       if (swipe.current?.fingers === 1) swipe.current.last = localPosition(event)
@@ -322,18 +329,19 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     }
     if (active.current?.id !== event.pointerId) {
       if (!active.current && tool === 'eraser' && event.pointerType !== 'touch') {
-        eraserPosition.current = pointFrom(event.nativeEvent)
+        eraserPosition.current = pointFrom(event)
         if (!frame.current) frame.current = requestAnimationFrame(drawLive)
       }
       return
     }
     if (event.cancelable) event.preventDefault()
-    const samples = event.nativeEvent.getCoalescedEvents?.() ?? []
-    for (const sample of samples.length ? samples : [event.nativeEvent]) active.current.stroke.points.push(pointFrom(sample))
+    lastPointer.current = event
+    const samples = event.getCoalescedEvents?.() ?? []
+    for (const sample of samples.length ? samples : [event]) active.current.stroke.points.push(pointFrom(sample))
     if (!frame.current) frame.current = requestAnimationFrame(drawLive)
   }
 
-  const finishPointer = (event: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) => {
+  const finishPointer = (event: PointerEvent, cancelled: boolean) => {
     if (event.pointerType === 'touch' && touches.current.has(event.pointerId) && swipe.current) {
       const candidate = swipe.current
       swipe.current = null
@@ -365,7 +373,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       return
     }
     if (!cancelled) {
-      const point = pointFrom(event.nativeEvent)
+      const point = pointFrom(event)
       point.pressure = stroke.stroke.points.at(-1)!.pressure
       stroke.stroke.points.push(point)
     }
@@ -378,6 +386,46 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       onChange(next)
     }
   }
+
+  inputHandlers.current = { move: pointerMove, finish: finishPointer }
+  useEffect(() => {
+    const outside = (event: PointerEvent) => !(event.target instanceof Node && viewport.current?.contains(event.target))
+    const move = (event: PointerEvent) => {
+      if (active.current && outside(event)) inputHandlers.current?.move(event)
+    }
+    const up = (event: PointerEvent) => {
+      if (active.current && outside(event)) inputHandlers.current?.finish(event, false)
+    }
+    const cancel = (event: PointerEvent) => {
+      if (active.current && outside(event)) inputHandlers.current?.finish(event, true)
+    }
+    const interrupted = () => {
+      const event = lastPointer.current
+      if (event && active.current?.id === event.pointerId) inputHandlers.current?.finish(event, true)
+    }
+    const visibility = () => { if (document.visibilityState === 'hidden') interrupted() }
+    const rejectPalm = (event: TouchEvent) => {
+      if (active.current?.type !== 'pen' || !event.cancelable) return
+      const hasFinger = Array.from(event.changedTouches).some(touch => !('touchType' in touch) || touch.touchType !== 'stylus')
+      if (hasFinger) event.preventDefault()
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('blur', interrupted)
+    document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('touchstart', rejectPalm, { capture: true, passive: false })
+    window.addEventListener('touchmove', rejectPalm, { capture: true, passive: false })
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('blur', interrupted)
+      document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('touchstart', rejectPalm, true)
+      window.removeEventListener('touchmove', rejectPalm, true)
+    }
+  }, [])
 
   return <div
     className={`ink-viewport tool-${tool}`}
@@ -392,14 +440,13 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       }
     }}
     onPointerDown={pointerDown}
-    onPointerMove={pointerMove}
+    onPointerMove={event => pointerMove(event.nativeEvent)}
     onPointerLeave={() => {
       eraserPosition.current = null
       if (!active.current) clearLive()
     }}
-    onPointerUp={event => finishPointer(event, false)}
-    onPointerCancel={event => finishPointer(event, true)}
-    onLostPointerCapture={event => finishPointer(event, true)}
+    onPointerUp={event => finishPointer(event.nativeEvent, false)}
+    onPointerCancel={event => finishPointer(event.nativeEvent, true)}
     onContextMenu={event => event.preventDefault()}
     onWheel={event => {
       if (event.ctrlKey || event.metaKey) {
