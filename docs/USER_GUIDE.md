@@ -22,14 +22,15 @@
 
 ## Pages and documents
 
-**Insert pages** adds blank pages, PNG/JPEG/WebP images, or PDF pages immediately
-after the selected page. Existing pages and handwriting are preserved.
-Images and PDF pages become writable backgrounds.
+**Add content** offers three choices: **New page**, **Image**, and **Import pages**.
+New page adds blank paper after the selected page. Import pages uses one picker
+for PDFs or images and inserts them after the selected page as writable
+backgrounds. Existing pages and handwriting are preserved.
 
 For a small screenshot inside the current page, paste an image with Ctrl/Cmd+V
-outside text fields, or use **Insert pages → Paste image**. Clipboard access
-depends on browser permission and iPadOS support. **Image on this page** provides
-a file-picker alternative without adding another notebook page.
+outside text fields, or use **Add content → Image → Paste from clipboard**.
+Clipboard access depends on browser permission and iPadOS support.
+**Choose image** provides a file-picker alternative without adding another page.
 
 Pasted/inline images switch to **Select images** (`I`). Drag an image to move it,
 drag its corner to resize proportionally, or use its size/remove controls.
