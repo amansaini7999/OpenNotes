@@ -41,7 +41,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const [pagesOpen, setPagesOpen] = useState(!tabletLayout)
   const [pageTurn, setPageTurn] = useState<PageTurn | null>(null)
   const [toolsHidden, setToolsHidden] = useState(false)
-  const [panel, setPanel] = useState<'insert' | 'tools' | null>(null)
+  const [panel, setPanel] = useState<'insert' | 'image' | 'tools' | null>(null)
   const [importing, setImporting] = useState('')
   const importInput = useRef<HTMLInputElement>(null)
   const inlineInput = useRef<HTMLInputElement>(null)
@@ -106,6 +106,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     const next = createPage(page.template)
     onUpdate(note => insertPagesAfter(note, page.id, [next]))
     setPageId(next.id)
+    setTool('pen')
+    setSelectedImageId(null)
     setPanel(null)
   }
   const insertFiles = async (files: File[]) => {
@@ -116,6 +118,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       const imported = await importPageFiles(files, 500 - notebook.pages.length, setImporting)
       onUpdate(note => insertPagesAfter(note, afterId, imported.pages, imported.sources))
       setPageId(imported.pages[0].id)
+      setTool('pen')
+      setSelectedImageId(null)
     } catch (cause: unknown) {
       onError(cause instanceof Error ? cause.message : 'Pages could not be imported. No pages were added.')
     } finally { setImporting('') }
@@ -157,18 +161,18 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   }, [])
   const pasteImage = async () => {
     try {
-      if (!navigator.clipboard?.read) throw new Error('Clipboard image access is unavailable here. Use Image on this page to choose a screenshot.')
+      if (!navigator.clipboard?.read) throw new Error('Clipboard image access is unavailable here.')
       const items = await navigator.clipboard.read()
       const files: File[] = []
       for (const item of items) {
         const type = item.types.find(type => ['image/png', 'image/jpeg', 'image/webp'].includes(type))
         if (type) files.push(new File([await item.getType(type)], `pasted-image.${type === 'image/jpeg' ? 'jpg' : type.split('/')[1]}`, { type }))
       }
-      if (!files.length) throw new Error('The clipboard does not contain a supported image. Copy a screenshot or use Image on this page.')
+      if (!files.length) throw new Error('The clipboard does not contain a supported image. Copy a screenshot first.')
       await inlineImporter.current(files)
     } catch (cause: unknown) {
       setPanel(null)
-      onError(`Paste failed: ${cause instanceof Error ? cause.message : 'Clipboard access was denied.'} You can choose Image on this page instead.`)
+      onError(`Paste failed: ${cause instanceof Error ? cause.message : 'Clipboard access was denied.'} Use Add content → Image → Choose image instead.`)
     }
   }
   const fit = (mode: 'width' | 'page') => {
@@ -194,7 +198,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       </div>
       {saveIndicator}
       <button className="icon-button" aria-label={pagesOpen ? 'Hide pages' : 'Show pages'} aria-expanded={pagesOpen} aria-controls="notebook-pages" onClick={() => setPagesOpen(value => !value)}><PanelLeft size={20} /></button>
-      <button className="icon-button" aria-label="Insert pages" onClick={() => setPanel('insert')}><FilePlus2 size={20} /></button>
+      <button className="icon-button" aria-label="Add content" title="Add content" onClick={() => setPanel('insert')}><FilePlus2 size={20} /></button>
       <button className="icon-button" aria-label={toolsHidden ? 'Show tools' : 'Hide tools'} aria-pressed={toolsHidden} onClick={() => setToolsHidden(value => !value)}><PenLine size={19} /></button>
       <button className="icon-button" aria-label="Export PDF" onClick={onPdf}><FileDown size={20} /></button>
     </header>
@@ -217,7 +221,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
             <PagePreview page={value} sources={notebook.sources} /><span>{String(index + 1).padStart(2, '0')}</span>
           </button>)}
         </div>
-        <button className="add-page" onClick={() => setPanel('insert')} disabled={notebook.pages.length >= 500}><Plus size={16} /> Insert pages</button>
+        <button className="add-page" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={16} /> New page</button>
       </aside>}
       <div className="canvas-workspace">
         <InkCanvas key={page.id} page={page} sources={notebook.sources} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={tabletLayout} pageTurn={tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={commitImages} />
@@ -249,16 +253,20 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       if (files.length) void insertInlineImages(files)
     }} />
     {importing && <div className="busy-overlay" role="status"><div><LoaderCircle className="spin" size={25} /><strong>{importing}</strong><span>Keep this window open.</span></div></div>}
-    {panel === 'insert' && <Dialog title="Insert pages" onClose={() => setPanel(null)}>
-      <p>Add pages immediately after page {pageIndex + 1}. Existing pages and handwriting stay unchanged.</p>
-      <div className="document-actions">
-        <button className="secondary" onClick={() => inlineInput.current?.click()} disabled={page.images.length >= 100}><ImagePlus size={19} /> Image on this page</button>
-        <button className="secondary" onClick={() => void pasteImage()} disabled={page.images.length >= 100}><ClipboardPaste size={19} /> Paste image</button>
-        <button className="secondary" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={19} /> Blank page</button>
-        <button className="secondary" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><ImagePlus size={19} /> Images as pages</button>
-        <button className="secondary" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><FileUp size={19} /> PDF pages</button>
+    {panel === 'insert' && <Dialog title="Add to notebook" onClose={() => setPanel(null)}>
+      <div className="document-actions add-content-actions">
+        <button className="secondary" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={20} /><span><strong>New page</strong><small>Blank paper after page {pageIndex + 1}</small></span></button>
+        <button className="secondary" aria-label="Image" onClick={() => setPanel('image')} disabled={page.images.length >= 100}><ImagePlus size={20} /><span><strong>Image</strong><small>Place on this page</small></span></button>
+        <button className="secondary" aria-label="Import pages" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><FileUp size={20} /><span><strong>Import pages</strong><small>PDF or images after page {pageIndex + 1}</small></span></button>
       </div>
-      <p>Choose PNG, JPEG, WebP or PDF files. Up to 50 inserted pages per operation and 500 pages per notebook. Images become full-page backgrounds you can write on.</p>
+    </Dialog>}
+    {panel === 'image' && <Dialog title="Insert image" onClose={() => setPanel(null)}>
+      <p>Place a screenshot or photo on this page.</p>
+      <div className="document-actions">
+        <button className="secondary" onClick={() => inlineInput.current?.click()} disabled={page.images.length >= 100}><ImagePlus size={19} /> Choose image</button>
+        <button className="secondary" onClick={() => void pasteImage()} disabled={page.images.length >= 100}><ClipboardPaste size={19} /> Paste from clipboard</button>
+      </div>
+      <button className="secondary" onClick={() => setPanel('insert')}><ArrowLeft size={16} /> Back</button>
     </Dialog>}
     {panel === 'tools' && <Dialog title="Tool settings" onClose={() => setPanel(null)}>
       {tool !== 'eraser' && <div className="tool-group color-group" aria-label="Ink colors">{colors.map(value => <button key={value} className={`color-swatch ${value === color ? 'active' : ''}`} style={{ '--swatch': value } as React.CSSProperties} aria-label={`Ink color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} />)}</div>}

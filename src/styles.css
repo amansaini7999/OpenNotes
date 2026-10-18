@@ -139,6 +139,9 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
 .current-ink { width: 16px; height: 16px; border-radius: 50%; }
 .document-actions { display: grid; gap: 10px; margin: 18px 0; }
 .document-actions > button { justify-content: flex-start; text-align: left; min-height: 44px; }
+.add-content-actions > button { gap: 14px; padding: 14px; }
+.add-content-actions strong { display: block; font-size: 13px; font-weight: 600; }
+.add-content-actions small { display: block; margin-top: 5px; color: #76866c; font-size: 11px; }
 .tool-group { display: flex; gap: 4px; align-items: center; }
 .tool-button { background: transparent; border: 1px solid transparent; border-radius: 8px; min-width: 38px; height: 38px; display: grid; place-items: center; color: #728471; }
 .tool-button:hover { background: #e6ede0; }

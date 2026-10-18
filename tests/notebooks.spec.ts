@@ -186,11 +186,43 @@ test('paste events place screenshots on the current page but do not intercept ti
 test('clipboard permission failures are visible and offer the image-picker alternative', async ({ page }) => {
   await createNotebook(page, 'Clipboard permissions')
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { read: async () => { throw new DOMException('Clipboard denied', 'NotAllowedError') } } }))
-  await page.getByRole('button', { name: 'Insert pages', exact: true }).click()
-  await page.getByRole('button', { name: 'Paste image', exact: true }).click()
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  await page.getByRole('button', { name: 'Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Paste from clipboard', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Paste failed')
-  await expect(page.getByRole('alert')).toContainText('Image on this page')
+  await expect(page.getByRole('alert')).toContainText('Choose image')
   expect((await storedImages(page)).length).toBe(0)
+})
+
+test('Add content starts with three clear actions and progressively reveals image sources', async ({ page }) => {
+  await createNotebook(page, 'Simple insertion')
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  const add = page.getByRole('dialog', { name: 'Add to notebook', exact: true })
+  await expect(add.locator('.document-actions > button')).toHaveCount(3)
+  await expect(add.getByRole('button', { name: 'Image', exact: true })).toBeVisible()
+  await expect(add.getByRole('button', { name: 'Import pages', exact: true })).toBeVisible()
+  await expect(add.getByRole('button', { name: 'Paste from clipboard' })).toHaveCount(0)
+  await expect(add).not.toContainText('100 MB')
+  await add.getByRole('button', { name: 'Image', exact: true }).click()
+  const image = page.getByRole('dialog', { name: 'Insert image', exact: true })
+  await expect(image.locator('.document-actions > button')).toHaveCount(2)
+  const screenshot = await screenshotFixture(page)
+  const imageChooser = page.waitForEvent('filechooser')
+  await image.getByRole('button', { name: 'Choose image', exact: true }).click()
+  await (await imageChooser).setFiles({ name: 'inline.png', mimeType: 'image/png', buffer: screenshot })
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 1 of 1')
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  const pdf = await PDFDocument.create()
+  pdf.addPage([300, 400]).drawText('Imported page', { x: 20, y: 350 })
+  const pagesChooser = page.waitForEvent('filechooser')
+  await page.getByRole('dialog', { name: 'Add to notebook', exact: true }).getByRole('button', { name: 'Import pages', exact: true }).click()
+  await (await pagesChooser).setFiles([
+    { name: 'photo.png', mimeType: 'image/png', buffer: screenshot },
+    { name: 'document.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) },
+  ])
+  await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 2 of 3')
+  await expect(page.getByRole('button', { name: 'Pen', exact: true })).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('installation is secondary to concise Help rather than a persistent app action', async ({ page }) => {
@@ -282,7 +314,7 @@ test('tool visibility and page sidebar visibility are independent', async ({ pag
 test('inserts image and ordered PDF pages after the current page, preserving existing ink offline', async ({ page, context }) => {
   await createNotebook(page, 'Mixed notebook')
   await draw(page)
-  await page.getByRole('button', { name: 'Insert pages', exact: true }).click()
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
   await page.getByRole('button', { name: 'Add page', exact: true }).click()
   await page.getByRole('button', { name: 'Previous page', exact: true }).click()
   const image = await page.evaluate(() => {
@@ -392,7 +424,7 @@ test('creates, draws, undoes/redoes, changes pages, and persists after reload', 
   await expect.poll(() => strokeCount(page)).toBe(0)
   await page.getByRole('button', { name: 'Redo', exact: true }).click()
   await expect.poll(() => strokeCount(page)).toBe(1)
-  await page.getByRole('button', { name: 'Insert pages', exact: true }).click()
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
   await page.getByRole('button', { name: 'Add page', exact: true }).click()
   await page.getByRole('button', { name: 'Show pages', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toHaveAttribute('aria-current', 'page')
@@ -805,7 +837,7 @@ test('tablet single- and two-finger horizontal swipes turn pages, but pinches an
   await page.reload()
   await createNotebook(page, 'Swipe notebook')
   for (let i = 0; i < 2; i++) {
-    await page.getByRole('button', { name: 'Insert pages', exact: true }).click()
+    await page.getByRole('button', { name: 'Add content', exact: true }).click()
     await page.getByRole('button', { name: 'Add page', exact: true }).click()
   }
   await page.getByRole('button', { name: 'Previous page', exact: true }).click()
