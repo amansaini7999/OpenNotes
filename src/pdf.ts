@@ -1,6 +1,6 @@
 import { PDFDocument, LineCapStyle, degrees, rgb, type PDFPage, type PDFImage } from 'pdf-lib'
 import { decodeBase64, jpegOrientation } from './assets'
-import { pressureWidth, type NotePage, type Notebook, type SourceAsset } from './model'
+import { dotRadius, isDotStroke, pressureWidth, type NotePage, type Notebook, type SourceAsset } from './model'
 import { loadImage } from './render'
 
 type Rect = { x: number; y: number; width: number; height: number; scale: number }
@@ -18,8 +18,8 @@ function drawInk(output: PDFPage, page: NotePage, rect: Rect) {
   const position = (x: number, y: number) => ({ x: rect.x + x * rect.scale, y: rect.y + rect.height - y * rect.scale })
   for (const stroke of page.strokes) {
     const points = stroke.points
-    if (points.length === 1) {
-      output.drawCircle({ ...position(points[0].x, points[0].y), size: (stroke.tool === 'highlighter' ? stroke.width * 5 : pressureWidth(stroke.width, points[0].pressure)) * rect.scale / 2, color: color(stroke.color), opacity: stroke.tool === 'highlighter' ? 0.3 : 1 })
+    if (isDotStroke(stroke)) {
+      output.drawCircle({ ...position(points[0].x, points[0].y), size: dotRadius(stroke) * rect.scale, color: color(stroke.color), opacity: stroke.tool === 'highlighter' ? 0.3 : 1 })
     } else if (stroke.tool === 'highlighter') {
       const path = points.map((p, index) => `${index ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ')
       output.drawSvgPath(path, { x: rect.x, y: rect.y + rect.height, scale: rect.scale, borderColor: color(stroke.color), borderWidth: stroke.width * 5, borderOpacity: 0.3, borderLineCap: LineCapStyle.Round })

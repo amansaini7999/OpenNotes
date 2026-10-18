@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backupSchema, createNotebook, createPage, distanceToSegment, emptyLibrary, mergeBackup, pressureWidth, readBackup, safeFilename, type Point, type Stroke } from './model'
+import { backupSchema, createNotebook, createPage, distanceToSegment, dotRadius, emptyLibrary, isDotStroke, mergeBackup, pressureWidth, readBackup, safeFilename, type Point, type Stroke } from './model'
 
 const point = (x: number, y: number): Point => ({ x, y, pressure: 0.5 })
 const stroke = (points: Point[]): Stroke => ({ id: crypto.randomUUID(), tool: 'pen', color: '#253a43', width: 3, points })
@@ -54,6 +54,13 @@ describe('document model', () => {
 })
 
 describe('ink geometry', () => {
+  it('recognizes stationary press/release samples as a dot rather than an invisible zero-length line', () => {
+    expect(isDotStroke(stroke([point(10, 10), point(10, 10)]))).toBe(true)
+    expect(isDotStroke(stroke([point(10, 10)]))).toBe(true)
+    expect(isDotStroke(stroke([point(10, 10), point(20, 20)]))).toBe(false)
+    const contact = stroke([{ ...point(10, 10), pressure: 0.1 }, { ...point(10, 10), pressure: 0.8 }])
+    expect(dotRadius(contact)).toBeCloseTo(pressureWidth(contact.width, 0.8) / 2)
+  })
   it('measures the closest point on a line segment, including a dot', () => {
     expect(distanceToSegment(point(5, 4), point(0, 0), point(10, 0))).toBe(4)
     expect(distanceToSegment(point(13, 4), point(0, 0), point(10, 0))).toBe(5)

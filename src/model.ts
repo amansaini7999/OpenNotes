@@ -183,6 +183,16 @@ export function pressureWidth(width: number, pressure: number): number {
   return width * (0.35 + Math.max(0, Math.min(1, pressure)) * 0.9)
 }
 
+export function isDotStroke(stroke: Pick<Stroke, 'points'>): boolean {
+  const first = stroke.points[0]
+  return Boolean(first) && stroke.points.every(point => point.x === first.x && point.y === first.y)
+}
+
+export function dotRadius(stroke: Stroke): number {
+  const pressure = stroke.points.reduce((maximum, point) => Math.max(maximum, point.pressure), 0)
+  return (stroke.tool === 'highlighter' ? stroke.width * 5 : pressureWidth(stroke.width, pressure)) / 2
+}
+
 export function safeFilename(title: string): string {
   return title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').slice(0, 90) || 'OpenNotes'
 }

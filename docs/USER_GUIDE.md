@@ -19,6 +19,8 @@
   equivalent to native hardware palm classification.
 - iPhone starts with finger drawing enabled. Two-finger navigation does not
   turn a finger stroke into ink; detecting a real pen enables pen-first mode.
+- Stationary finger/pen contacts are rendered as dots, including repeated
+  press/release coordinates, with the same appearance in thumbnails and export.
 - The circular eraser removes the touched portion of ink, not paper or imported
   backgrounds. Each gesture can be undone.
 

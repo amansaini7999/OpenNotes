@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { inflateSync } from 'node:zlib'
-import { PDFDocument, PDFName, PDFNumber, PDFRawStream, degrees } from 'pdf-lib'
+import { PDFDocument, PDFPage, PDFName, PDFNumber, PDFRawStream, degrees } from 'pdf-lib'
 import { buildNotebookPdf, fitContent } from './pdf'
 import { createSourceAsset, decodeBase64, encodeBase64, jpegOrientation } from './assets'
 import { backupSchema, createNotebook, createPage, emptyLibrary, mergeBackup } from './model'
@@ -8,6 +8,17 @@ import { backupSchema, createNotebook, createPage, emptyLibrary, mergeBackup } f
 const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
 
 describe('uniform, source-preserving PDF export', () => {
+  it('exports stationary press/release contacts as visible circles, not zero-length lines', async () => {
+    const note = createNotebook('Tap', undefined, 'plain')
+    note.pages[0].strokes = [{ id: crypto.randomUUID(), tool: 'pen', color: '#253a43', width: 3, points: [{ x: 100, y: 100, pressure: 0.2 }, { x: 100, y: 100, pressure: 0.8 }] }]
+    const circles = vi.spyOn(PDFPage.prototype, 'drawCircle')
+    try {
+      await buildNotebookPdf(note)
+      expect(circles).toHaveBeenCalledOnce()
+      expect(circles.mock.calls[0][0]).toMatchObject({ x: 75, y: 767.25, opacity: 1 })
+      expect(circles.mock.calls[0][0]!.size).toBeGreaterThan(1)
+    } finally { circles.mockRestore() }
+  })
   it('uses the first notebook page dimensions for portrait and landscape attachments', async () => {
     const note = createNotebook('Aligned pages', undefined, 'plain')
     note.pages.push({ ...createPage('plain'), width: 1131, height: 1600 }, { ...createPage('plain'), width: 1200, height: 783 })

@@ -89,6 +89,14 @@ test('iPhone native finger contacts draw, undo and survive reload', async ({ pag
   await page.touchscreen.tap(paper.x + paper.width * 0.3, paper.y + paper.height * 0.3)
   await page.touchscreen.tap(paper.x + paper.width * 0.4, paper.y + paper.height * 0.35)
   await expect.poll(async () => (await ink(page)).length).toBe(2)
+  await expect.poll(() => page.getByTestId('ink-canvas').evaluate((canvas: HTMLCanvasElement) => {
+    const pixels = canvas.getContext('2d')!.getImageData(Math.round(canvas.width * 0.3) - 4, Math.round(canvas.height * 0.3) - 4, 9, 9).data
+    let darkest = 255
+    for (let i = 0; i < pixels.length; i += 4) darkest = Math.min(darkest, Math.max(pixels[i], pixels[i + 1], pixels[i + 2]))
+    return darkest
+  })).toBeLessThan(180)
+  await page.getByRole('button', { name: 'Show pages', exact: true }).click()
+  await expect(page.locator('.page-preview circle[fill="#253a43"]')).toHaveCount(2)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect.poll(async () => (await ink(page)).length).toBe(1)
   await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
