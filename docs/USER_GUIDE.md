@@ -75,8 +75,15 @@ or lost capture. Process termination before handling input can still lose work.
 Use **Back up everything** from the library to export `.opennotes` files.
 Import shows a restore summary before applying changes. Stable notebook IDs and
 SHA-256 content checks skip identical notebooks, replace matching notebooks only
-when the backup is newer, and retain newer local copies. Equal-age divergent
-versions are preserved as labeled conflict copies rather than overwritten.
+when the backup is newer, and retain newer local copies. Restoring an old
+two-notebook backup after deleting one and editing the other restores the
+missing notebook and keeps the newer survivor; it should not create a third.
+
+If timestamps match but contents differ, or an older import regenerated IDs
+and a name/shared-ink match suggests an existing notebook, restore requires a
+choice: keep local, replace the uniquely matched version, or explicitly import
+a separate copy. A name match alone never permits an automatic overwrite or
+copy. Confirmed legacy matches remember an ID alias for later restores.
 Choose **Import as separate copies** only when duplicates are intentional.
 Duplicates created by older app versions are not deleted automatically.
 

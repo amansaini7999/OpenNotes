@@ -9,7 +9,7 @@ import { NotebookEditor } from './components/NotebookEditor'
 import { Dialog } from './components/Dialog'
 import { InstallApp } from './components/InstallApp'
 import { useViewportHeight } from './hooks/useViewportHeight'
-import { planBackupRestore, type RestorePlan } from './backup'
+import { planBackupRestore, type RestorePlan, type RestoreDecision } from './backup'
 
 type Modal = 'create' | 'help' | 'delete' | null
 
@@ -23,7 +23,7 @@ export default function App() {
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [restore, setRestore] = useState<{ plan: RestorePlan; imported: Library } | null>(null)
+  const [restore, setRestore] = useState<{ plan: RestorePlan; imported: Library; decisions: Record<string, RestoreDecision> } | null>(null)
   const [name, setName] = useState('')
   const [cover, setCover] = useState(coverColors[0])
   const [template, setTemplate] = useState<Template>('dotted')
@@ -68,7 +68,7 @@ export default function App() {
         if (file.size > 100 * 1024 * 1024) throw new Error('Choose an OpenNotes backup smaller than 100 MB.')
         const imported = readBackup(await file.text())
         if (!library) throw new Error('The library is not ready. Wait for notebooks to load and retry.')
-        setRestore({ plan: await planBackupRestore(library, imported), imported })
+        setRestore({ plan: await planBackupRestore(library, imported), imported, decisions: {} })
       }
     })
   }
@@ -83,16 +83,19 @@ export default function App() {
     setActiveId(note.id)
   }
 
-  const applyRestore = (copies: boolean) => {
+  const applyRestore = async (copies: boolean) => {
     if (!restore) return
-    try {
+    const request = restore
+    setRestore(null)
+    await runTask('Restoring notebooks…', async () => {
+      const plan = copies ? request.plan : await planBackupRestore(request.plan.base, request.imported, request.decisions)
+      if (!copies && plan.reviews.some(review => !request.decisions[review.incomingId])) throw new Error('Some backup versions still need an explicit restore choice. Import the backup again and review them.')
       update(value => {
-        if (value !== restore.plan.base) throw new Error('Notebooks changed while this backup was being reviewed. Close this dialog and import it again.')
-        return copies ? mergeBackup(value, restore.imported) : restore.plan.library
+        if (value !== request.plan.base) throw new Error('Notebooks changed while this backup was being reviewed. Import it again to review the latest versions.')
+        return copies ? mergeBackup(value, request.imported) : plan.library
       })
-      setNotice(copies ? 'Imported separate copies as requested.' : `Restore complete: ${restore.plan.added} added, ${restore.plan.updated} updated, ${restore.plan.unchanged} unchanged, ${restore.plan.keptNewer} newer local copies kept, ${restore.plan.conflicts} conflicts preserved.`)
-      setRestore(null)
-    } catch (cause: unknown) { setError(cause instanceof Error ? cause.message : 'The backup could not be restored.') }
+      setNotice(copies ? 'Imported separate copies as requested.' : `Restore complete: ${plan.added} added, ${plan.updated} updated, ${plan.unchanged} unchanged, ${plan.keptNewer + plan.keptLocal} local versions kept, ${plan.conflicts} copies explicitly requested.`)
+    })
   }
 
   const saveIndicator = <span className={`save-state ${status === 'error' ? 'failed' : ''}`} role="status" data-testid="save-status">
@@ -170,14 +173,30 @@ export default function App() {
             <li>Updates from newer backups: {restore.plan.updated}</li>
             <li>Already present: {restore.plan.unchanged}</li>
             <li>Newer local notebooks kept: {restore.plan.keptNewer}</li>
-            <li>Conflicts preserved as separate copies: {restore.plan.conflicts}</li>
+            <li>Versions needing a choice: {restore.plan.reviews.length}</li>
           </ul>
+          {restore.plan.reviews.map(review => <label className="field" key={review.incomingId}>
+            <strong>{review.title}</strong>
+            <span>{review.reason === 'same-timestamp' ? 'The timestamps match, but the contents differ.' : 'The notebook ID differs, but an existing notebook shares its name, ink identifiers, or a saved restore identity.'} A possible match is not permission to overwrite.</span>
+            <span>Existing: {review.candidates.map(candidate => candidate.title).join(', ')}</span>
+            <select aria-label={`Restore decision for ${review.title}`} value={restore.decisions[review.incomingId] ?? ''} onChange={event => {
+              const decision = event.target.value
+              if (decision === 'keep-local' || decision === 'replace-local' || decision === 'separate-copy') {
+                setRestore(value => value ? { ...value, decisions: { ...value.decisions, [review.incomingId]: decision } } : value)
+              }
+            }}>
+              <option value="" disabled>Choose what to do</option>
+              <option value="keep-local">Keep existing local notebook{review.candidates.length > 1 ? 's' : ''}</option>
+              {review.candidates.length === 1 && <option value="replace-local">Replace the existing version with this backup</option>}
+              <option value="separate-copy">Import this version as a separate copy</option>
+            </select>
+          </label>)}
           {restore.plan.updated > 0 && <p>Restoring replaces local versions with the newer backup versions. Export a backup first if you need the current local versions.</p>}
           <p>Existing duplicates are not deleted automatically. Import as copies only if you intentionally want duplicates.</p>
           <div className="dialog-actions">
             <button className="secondary" onClick={() => setRestore(null)}>Cancel</button>
-            <button className="secondary" disabled={!restore.imported.notebooks.length} onClick={() => applyRestore(true)}>Import as separate copies</button>
-            <button className="primary" onClick={() => applyRestore(false)}>Restore notebooks</button>
+            <button className="secondary" disabled={!restore.imported.notebooks.length} onClick={() => void applyRestore(true)}>Import as separate copies</button>
+            <button className="primary" disabled={restore.plan.reviews.some(review => !restore.decisions[review.incomingId])} onClick={() => void applyRestore(false)}>Restore notebooks</button>
       </div>
     </Dialog>}
   </div>

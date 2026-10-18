@@ -53,6 +53,7 @@ const notebookSchema = z.object({
   pages: z.array(pageSchema).min(1).max(500),
   sources: z.array(sourceAssetSchema).default([]),
   backupConflict: z.object({ originalId: z.string().uuid(), contentHash: z.string().regex(/^[0-9a-f]{64}$/) }).optional(),
+  backupAliases: z.array(z.string().uuid()).max(1000).optional(),
 })
 export const backupSchema = z.object({
   format: z.literal('opennotes'),
@@ -154,6 +155,8 @@ export function mergeBackup(library: Library, imported: Library): Library {
         return {
           ...note,
           id: crypto.randomUUID(),
+          backupAliases: undefined,
+          backupConflict: undefined,
           createdAt: now,
           updatedAt: now,
           sources: note.sources.map(asset => ({ ...asset, id: ids.get(asset.id)! })),
