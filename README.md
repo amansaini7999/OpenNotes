@@ -28,7 +28,7 @@ it as a web app, then keep working offline.
 - **Handwritten notes** with pressure-sensitive ink, highlighting, erasing,
   and undo/redo.
 - **Personal notebooks** with multiple pages, colorful covers, and paper styles.
-- **Images and PDFs** inserted as pages you can annotate.
+- **Images and PDFs** as notebook pages, plus pasted screenshots within your notes.
 - **A focused workspace** designed for tablets and laptops.
 - **Offline use** after the initial setup, without a backend or subscription.
 - **Editable backups and PDF export** so you can keep and share your work.

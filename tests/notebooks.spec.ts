@@ -72,7 +72,120 @@ async function strokeCount(page: Page): Promise<number> {
   })
 }
 
+async function storedImages(page: Page): Promise<{ x: number; y: number; width: number; height: number }[]> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('opennotes-v1')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      return await new Promise<{ x: number; y: number; width: number; height: number }[]>((resolve, reject) => {
+        const request = db.transaction('pages').objectStore('pages').getAll()
+        request.onsuccess = () => resolve(request.result.flatMap(page => page.images ?? []))
+        request.onerror = () => reject(request.error)
+      })
+    } finally { db.close() }
+  })
+}
+
+async function screenshotFixture(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 800; canvas.height = 400
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#b95e53'; context.fillRect(0, 0, 800, 400)
+    context.fillStyle = '#fff'; context.font = '30px sans-serif'; context.fillText('Inline screenshot', 40, 70)
+    return canvas.toDataURL('image/png').split(',')[1]
+  })
+  return Buffer.from(base64, 'base64')
+}
+
 test.beforeEach(async ({ page }) => { await page.goto('./') })
+
+test('inline images move and resize without new pages, support undo/redo, persist and export at source resolution', async ({ page }) => {
+  await createNotebook(page, 'Inline screenshot')
+  await draw(page)
+  const buffer = await screenshotFixture(page)
+  await page.getByLabel('Insert image on current page', { exact: true }).setInputFiles({ name: 'screenshot.png', mimeType: 'image/png', buffer })
+  await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 1 of 1')
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  expect(await strokeCount(page)).toBe(1)
+  const first = (await storedImages(page))[0]
+  await expect.poll(() => page.getByTestId('ink-canvas').evaluate((canvas: HTMLCanvasElement, image) => {
+    const width = (canvas.parentElement as HTMLElement).clientWidth
+    const ratio = canvas.width / width
+    const pixel = canvas.getContext('2d')!.getImageData(Math.round((image.x + image.width / 2) * ratio), Math.round((image.y + image.height / 2) * ratio), 1, 1).data
+    return pixel[0] > 150 && pixel[1] < 130
+  }, first)).toBe(true)
+  const image = page.getByRole('group', { name: 'Image 1', exact: true })
+  await expect(image).toBeVisible()
+  const bounds = await image.boundingBox()
+  if (!bounds) throw new Error('Inline image handles missing')
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(bounds.x + bounds.width / 2 + 30, bounds.y + bounds.height / 2 + 20, { steps: 6 })
+  await page.mouse.up()
+  await expect.poll(async () => (await storedImages(page))[0].x).toBeGreaterThan(first.x)
+  const moved = (await storedImages(page))[0]
+  await page.getByRole('button', { name: 'Enlarge image', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page))[0].width).toBeGreaterThan(moved.width)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page))[0].width).toBe(moved.width)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page))[0].x).toBe(first.x)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page)).length).toBe(0)
+  expect(await strokeCount(page)).toBe(1)
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Inline screenshot')
+  expect((await storedImages(page)).length).toBe(1)
+  await page.getByRole('button', { name: 'Select images', exact: true }).click()
+  const exported = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export PDF', exact: true }).click()
+  const pdf = await PDFDocument.load(await downloadBytes(await exported))
+  const dimensions: number[][] = []
+  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+    if (object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype'))?.toString() === '/Image') {
+      dimensions.push([object.dict.lookup(PDFName.of('Width'), PDFNumber).asNumber(), object.dict.lookup(PDFName.of('Height'), PDFNumber).asNumber()])
+    }
+  }
+  expect(dimensions).toContainEqual([800, 400])
+  await page.getByRole('group', { name: 'Image 1', exact: true }).focus()
+  await page.getByRole('button', { name: 'Remove image', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page)).length).toBe(0)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+})
+
+test('paste events place screenshots on the current page but do not intercept title-field pastes', async ({ page }) => {
+  await createNotebook(page, 'Clipboard screenshot')
+  const base64 = (await screenshotFixture(page)).toString('base64')
+  const paste = async (intoTitle: boolean) => page.evaluate(({ base64, intoTitle }) => {
+    const data = new DataTransfer()
+    data.items.add(new File([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], 'clipboard.png', { type: 'image/png' }))
+    const event = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })
+    if (intoTitle) document.querySelector('input[aria-label="Notebook title"]')!.dispatchEvent(event)
+    else window.dispatchEvent(event)
+  }, { base64, intoTitle })
+  await paste(false)
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 1 of 1')
+  await paste(true)
+  expect((await storedImages(page)).length).toBe(1)
+})
+
+test('clipboard permission failures are visible and offer the image-picker alternative', async ({ page }) => {
+  await createNotebook(page, 'Clipboard permissions')
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { read: async () => { throw new DOMException('Clipboard denied', 'NotAllowedError') } } }))
+  await page.getByRole('button', { name: 'Insert pages', exact: true }).click()
+  await page.getByRole('button', { name: 'Paste image', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Paste failed')
+  await expect(page.getByRole('alert')).toContainText('Image on this page')
+  expect((await storedImages(page)).length).toBe(0)
+})
 
 test('installation is secondary to concise Help rather than a persistent app action', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Install app', exact: true })).toHaveCount(0)

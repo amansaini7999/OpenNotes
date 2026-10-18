@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { drawStroke, loadImage, paintPage } from '../render'
-import { type NotePage, type Point, type Stroke, type Tool } from '../model'
+import { type NotePage, type Point, type Stroke, type Tool, type SourceAsset, type PlacedImage } from '../model'
 import { eraseInk } from '../eraser'
 import { suppressTouch } from '../input'
 import { horizontalPageTurn, type PageTurn } from '../navigation'
+import { ImageSelection } from './ImageSelection'
 
 type View = { x: number; y: number; scale: number }
 type Position = { x: number; y: number }
@@ -11,6 +12,7 @@ type Gesture = { distance: number; midpoint: Position; view: View }
 type Swipe = { start: Position; last: Position; startedAt: number; fingers: number; pinched: boolean; view: View }
 interface Props {
   page: NotePage
+  sources: SourceAsset[]
   tool: Tool
   color: string
   width: number
@@ -26,13 +28,20 @@ interface Props {
   pageSwipes: boolean
   pageTurn: PageTurn | null
   onPageTurn: (direction: PageTurn) => void
+  selectedImageId: string | null
+  onImageSelect: (id: string | null) => void
+  onImagesChange: (images: PlacedImage[]) => void
 }
 
-export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn }: Props) {
+export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
   const [background, setBackground] = useState<{ source: string; image: HTMLImageElement } | null>(null)
+  const imageCache = useRef(new Map<string, HTMLImageElement>())
+  const [inlineImages, setInlineImages] = useState<ReadonlyMap<string, HTMLImageElement>>(imageCache.current)
+  const [imagePreview, setImagePreview] = useState<PlacedImage | null>(null)
+  const inlineKey = page.images.map(image => image.assetId).join('|')
   const strokesRef = useRef(page.strokes)
   const renderedPoints = useRef(0)
   const lastPenAt = useRef(-Infinity)
@@ -146,6 +155,24 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
     return () => { cancelled = true }
   }, [page.background, onError])
 
+  useEffect(() => {
+    let cancelled = false
+    const ids = [...new Set(inlineKey.split('|').filter(Boolean))].filter(id => !imageCache.current.has(id))
+    if (!ids.length) return
+    void Promise.all(ids.map(async id => {
+      const source = sources.find(asset => asset.id === id)
+      if (!source || source.kind !== 'image') throw new Error('An inline image source is missing. Restore an editable backup.')
+      return [id, await loadImage(`data:${source.mime};base64,${source.data}`)] as const
+    })).then(images => {
+      if (cancelled) return
+      for (const [id, image] of images) imageCache.current.set(id, image)
+      setInlineImages(new Map(imageCache.current))
+    }).catch((cause: unknown) => {
+      if (!cancelled) onError(cause instanceof Error ? cause.message : 'An inline image could not be displayed.')
+    })
+    return () => { cancelled = true }
+  }, [inlineKey, sources, onError])
+
   useLayoutEffect(() => {
     strokesRef.current = page.strokes
     if (!committed.current || !live.current) return
@@ -161,8 +188,9 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
     const ctx = committed.current.getContext('2d')
     if (!ctx) { onError('Canvas rendering is unavailable in this browser.'); return }
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    paintPage(ctx, page, background?.source === page.background ? background?.image : undefined)
-  }, [page, background, onError])
+    const rendered = imagePreview ? { ...page, images: page.images.map(image => image.id === imagePreview.id ? imagePreview : image) } : page
+    paintPage(ctx, rendered, background?.source === page.background ? background?.image : undefined, inlineImages)
+  }, [page, background, inlineImages, imagePreview, onError])
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
   useLayoutEffect(() => {
@@ -174,7 +202,7 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
 
   function paintCommitted(strokes: Stroke[]) {
     const ctx = committed.current?.getContext('2d')
-    if (ctx) paintPage(ctx, { ...page, strokes }, background?.source === page.background ? background?.image : undefined)
+    if (ctx) paintPage(ctx, { ...page, strokes }, background?.source === page.background ? background?.image : undefined, inlineImages)
   }
 
   const localPosition = (event: { clientX: number; clientY: number }): Position => {
@@ -244,6 +272,7 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
       pan.current = { id: event.pointerId, type: event.pointerType, start: localPosition(event), view: { ...viewRef.current } }
       return
     }
+    if (tool === 'image') { onImageSelect(null); return }
     const raw = localPosition(event)
     const v = viewRef.current
     if (raw.x < v.x || raw.y < v.y || raw.x > v.x + page.width * v.scale || raw.y > v.y + page.height * v.scale) return
@@ -385,6 +414,7 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
     <div className="paper" data-testid="paper" style={{ width: page.width, height: page.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
       <canvas ref={committed} data-testid="ink-canvas" aria-label="Notebook page" />
       <canvas ref={live} aria-hidden="true" />
+      {tool === 'image' && <ImageSelection page={page} selectedId={selectedImageId} scale={view.scale} onSelect={onImageSelect} onChange={onImagesChange} onPreview={setImagePreview} />}
     </div>
   </div>
 }
