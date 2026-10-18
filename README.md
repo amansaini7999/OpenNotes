@@ -29,8 +29,11 @@ No account, subscription, or cloud service required.
   an adjustable circular eraser that removes only the touched ink, and undo/redo.
 - **Make it yours** — named notebooks, colorful covers, multiple pages, and
   dotted, ruled, or plain paper.
-- **Bring your documents** — import PDFs, annotate their pages, and export
-  your work as a PDF.
+- **Keep the page central** — open directly into a full-width writing space.
+  Thumbnails, tool settings, paper style and document actions appear on demand;
+  hide writing tools for more space.
+- **Bring your documents** — insert images and PDF pages into an existing
+  notebook, annotate them, and export the mixed notebook as a PDF.
 - **Move around freely** — pan, zoom, fit a page to the screen, and navigate
   with two fingers while automatic palm protection keeps touch out of your ink.
 - **Keep ownership** — local autosave, editable `.opennotes` backups, and
@@ -176,8 +179,18 @@ not erased.
 
 ## Current scope
 
+- In a notebook, choose **Insert pages** to insert blank pages, PNG/JPEG/WebP
+  images, or all pages of a PDF **immediately after the current page**. Imported
+  pages become writable backgrounds; existing pages and ink are preserved.
+  Use **Show pages** or the previous/next controls to navigate.
+- **Notebook options** contains paper style, PDF export, editable backup and
+  help. **Tool settings** contains ink colors and stroke/eraser size. These
+  panels do not occupy the writing area when closed.
+- Image import supports up to **20 MB per file**. A batch can insert up to
+  **50 pages and 100 MB**, and notebooks support up to **500 pages**.
+  If a batch fails, no pages from that batch are inserted.
 - PDF import supports files up to **30 MB and 50 pages**.
-- Imported PDF pages are rasterized. Export preserves their appearance, not
+- Imported images and PDF pages are rasterized. Export preserves their appearance, not
   selectable source text or editable PDF annotations.
 - Undo/redo retains up to 50 actions per page during the current session.
 - Editable backups use OpenNotes' own `.opennotes` format.
@@ -240,7 +253,9 @@ npm run test:e2e
 Tests cover ink geometry and rendered pixels, pressure input, multi-touch zoom,
 document validation, persistence, offline startup, offline PDF operations,
 backup recovery, storage failures, concurrent tabs, installation guidance,
-viewport-height changes, interrupted pen input, rapid strokes, and responsive layouts.
+viewport-height changes, interrupted pen input, rapid strokes, page-first
+layout dimensions, ordered in-notebook image/PDF insertion, import limits,
+atomic batch failures, and responsive layouts.
 Chromium-specific input-injection tests are intentionally skipped in WebKit.
 
 ## Contributing

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ChevronDown, Download, Eraser, FileDown, Hand, Highlighter, Maximize, Minus, PenLine, Plus, Redo2, Trash2, Undo2 } from 'lucide-react'
-import { colors, createPage, type Notebook, type Stroke, type Tool, type NotePage, type Template } from '../model'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Download, Eraser, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, LoaderCircle, Maximize, Minus, MoreHorizontal, PanelLeft, PenLine, Plus, Redo2, Settings2, Trash2, Undo2, X } from 'lucide-react'
+import { colors, createPage, insertPagesAfter, type Notebook, type Stroke, type Tool, type NotePage, type Template } from '../model'
 import { InkCanvas } from './InkCanvas'
 import { prefersPencilOnly } from '../input'
+import { importPageFiles } from '../files'
+import { Dialog } from './Dialog'
 
 interface Props {
   notebook: Notebook
@@ -12,6 +14,9 @@ interface Props {
   onPdf: () => void
   onDelete: () => void
   onError: (message: string) => void
+  saveIndicator: ReactNode
+  installAction: ReactNode
+  onHelp: () => void
 }
 type History = { undo: Stroke[][]; redo: Stroke[][] }
 const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[] = [
@@ -21,7 +26,7 @@ const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[
   { id: 'hand', name: 'Pan', icon: Hand, shortcut: 'V' },
 ]
 
-export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, onDelete, onError }: Props) {
+export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, onDelete, onError, saveIndicator, installAction, onHelp }: Props) {
   const [pageId, setPageId] = useState(notebook.pages[0].id)
   const [tool, setTool] = useState<Tool>('pen')
   const [color, setColor] = useState(colors[0])
@@ -30,6 +35,12 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
   const [penOnly, setPenOnly] = useState(() => prefersPencilOnly(navigator.userAgent, navigator.platform, navigator.maxTouchPoints))
   const [zoom, setZoom] = useState(100)
   const [fitToken, setFitToken] = useState(0)
+  const [fitMode, setFitMode] = useState<'width' | 'page'>('width')
+  const [pagesOpen, setPagesOpen] = useState(false)
+  const [toolsHidden, setToolsHidden] = useState(false)
+  const [panel, setPanel] = useState<'insert' | 'tools' | 'document' | null>(null)
+  const [importing, setImporting] = useState('')
+  const importInput = useRef<HTMLInputElement>(null)
   const [zoomCommand, setZoomCommand] = useState({ factor: 1, serial: 0 })
   const [historyVersion, setHistoryVersion] = useState(0)
   const histories = useRef(new Map<string, History>())
@@ -83,8 +94,25 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
 
   const addPage = () => {
     const next = createPage(page.template)
-    onUpdate(note => ({ ...note, updatedAt: Date.now(), pages: [...note.pages, next] }))
+    onUpdate(note => insertPagesAfter(note, page.id, [next]))
     setPageId(next.id)
+    setPanel(null)
+  }
+  const insertFiles = async (files: File[]) => {
+    const afterId = page.id
+    setPanel(null)
+    setImporting('Preparing pages…')
+    try {
+      const pages = await importPageFiles(files, 500 - notebook.pages.length, setImporting)
+      onUpdate(note => insertPagesAfter(note, afterId, pages))
+      setPageId(pages[0].id)
+    } catch (cause: unknown) {
+      onError(cause instanceof Error ? cause.message : 'Pages could not be imported. No pages were added.')
+    } finally { setImporting('') }
+  }
+  const fit = (mode: 'width' | 'page') => {
+    setFitMode(mode)
+    setFitToken(value => value + 1)
   }
 
   return <main className="editor" data-history-version={historyVersion}>
@@ -95,50 +123,82 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
           const title = e.target.value
           if (title.trim()) onUpdate(note => ({ ...note, title, updatedAt: Date.now() }))
         }} />
-        <span>{notebook.pages.length} {notebook.pages.length === 1 ? 'page' : 'pages'} · Personal notebook</span>
       </div>
-      <button className="secondary export-button" onClick={onPdf}><FileDown size={17} /><span>Export PDF</span></button>
-      <button className="icon-button" aria-label="Download notebook backup" title="Download editable notebook backup" onClick={onBackup}><Download size={19} /></button>
-      <button className="icon-button danger" aria-label="Delete notebook" onClick={onDelete}><Trash2 size={18} /></button>
+      {saveIndicator}
+      <button className="icon-button" aria-label={pagesOpen ? 'Hide pages' : 'Show pages'} aria-expanded={pagesOpen} aria-controls="notebook-pages" onClick={() => setPagesOpen(value => !value)}><PanelLeft size={20} /></button>
+      <button className="icon-button" aria-label="Insert pages" onClick={() => setPanel('insert')}><FilePlus2 size={20} /></button>
+      <button className="icon-button" aria-label={toolsHidden ? 'Show tools' : 'Hide tools'} aria-pressed={toolsHidden} onClick={() => { setToolsHidden(value => !value); setPagesOpen(false) }}><PenLine size={19} /></button>
+      <button className="icon-button" aria-label="Notebook options" onClick={() => setPanel('document')}><MoreHorizontal size={22} /></button>
     </header>
-    <div className="ink-toolbar" aria-label="Drawing tools">
+    {!toolsHidden && <div className="ink-toolbar" role="toolbar" aria-label="Drawing tools">
       <div className="tool-group">
         {tools.map(item => <button key={item.id} className={`tool-button ${tool === item.id ? 'selected' : ''}`} aria-label={item.name} aria-pressed={tool === item.id} title={`${item.name} (${item.shortcut})`} onClick={() => setTool(item.id)}><item.icon size={21} /></button>)}
       </div>
-      <span className="toolbar-divider" />
-      <div className="tool-group color-group" aria-label="Ink colors">{colors.map(value => <button key={value} className={`color-swatch ${value === color ? 'active' : ''}`} style={{ '--swatch': value } as React.CSSProperties} aria-label={`Ink color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} />)}</div>
-      <span className="toolbar-divider" />
-      <label className="width-control"><span>{tool === 'eraser' ? 'Eraser size' : 'Size'}</span><input aria-label={tool === 'eraser' ? 'Eraser size' : 'Stroke width'} type="range" min={tool === 'eraser' ? 4 : 1} max={tool === 'eraser' ? 40 : 8} step={tool === 'eraser' ? 2 : 0.5} value={tool === 'eraser' ? eraserRadius : width} onChange={e => tool === 'eraser' ? setEraserRadius(Number(e.target.value)) : setWidth(Number(e.target.value))} /><span className="width-dot" style={{ width: tool === 'eraser' ? 10 : width + 3, height: tool === 'eraser' ? 10 : width + 3 }} /></label>
+      <button className="tool-button settings-button" aria-label="Tool settings" onClick={() => setPanel('tools')}><span className="current-ink" style={{ background: color }} /><Settings2 size={17} /></button>
       <span className="toolbar-divider" />
       <div className="tool-group">
         <button className="tool-button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!history.undo.length} onClick={undo}><Undo2 size={20} /></button>
         <button className="tool-button" aria-label="Redo" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!history.redo.length} onClick={redo}><Redo2 size={20} /></button>
       </div>
-    </div>
+    </div>}
     <div className="editor-body">
-      <aside className="pages-panel" aria-label="Notebook pages">
-        <div className="pages-heading"><span>PAGES</span><button className="icon-button" aria-label="Add page" disabled={notebook.pages.length >= 500} onClick={addPage}><Plus size={17} /></button></div>
+      {pagesOpen && <aside className="pages-panel" id="notebook-pages" aria-label="Notebook pages">
+        <div className="pages-heading"><span>PAGES</span><button className="icon-button" aria-label="Close pages" onClick={() => setPagesOpen(false)}><X size={17} /></button></div>
         <div className="page-list">
           {notebook.pages.map((value, index) => <button className={`page-tile ${page.id === value.id ? 'active' : ''}`} key={value.id} onClick={() => setPageId(value.id)} aria-label={`Page ${index + 1}`} aria-current={page.id === value.id ? 'page' : undefined}>
             <PagePreview page={value} /><span>{String(index + 1).padStart(2, '0')}</span>
           </button>)}
         </div>
-        <button className="add-page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={16} /> New page</button>
-      </aside>
+        <button className="add-page" onClick={() => setPanel('insert')} disabled={notebook.pages.length >= 500}><Plus size={16} /> Insert pages</button>
+      </aside>}
       <div className="canvas-workspace">
-        <InkCanvas key={page.id} page={page} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} />
+        <InkCanvas key={page.id} page={page} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} />
         <div className="canvas-bottom">
-          <label className="template-picker"><select aria-label="Paper template" disabled={Boolean(page.background)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select><ChevronDown size={14} /></label>
-          <span className="page-indicator">Page {pageIndex + 1} of {notebook.pages.length}</span>
+          <div className="page-navigation">
+            <button className="icon-button" aria-label="Previous page" disabled={pageIndex === 0} onClick={() => setPageId(notebook.pages[pageIndex - 1].id)}><ChevronLeft size={17} /></button>
+            <button className="page-position" aria-label="Show page overview" onClick={() => setPagesOpen(value => !value)}>Page {pageIndex + 1} of {notebook.pages.length}</button>
+            <button className="icon-button" aria-label="Next page" disabled={pageIndex === notebook.pages.length - 1} onClick={() => setPageId(notebook.pages[pageIndex + 1].id)}><ChevronRight size={17} /></button>
+          </div>
           <div className="zoom-controls">
             <button className="icon-button" aria-label="Zoom out" onClick={() => setZoomCommand(value => ({ factor: 0.8, serial: value.serial + 1 }))}><Minus size={15} /></button>
             <span aria-live="polite">{zoom}%</span>
             <button className="icon-button" aria-label="Zoom in" onClick={() => setZoomCommand(value => ({ factor: 1.25, serial: value.serial + 1 }))}><Plus size={15} /></button>
-            <button className="icon-button" aria-label="Fit page" onClick={() => setFitToken(value => value + 1)}><Maximize size={16} /></button>
+            <button className="icon-button" aria-label="Fit page" onClick={() => fit('page')}><Maximize size={16} /></button>
+            <button className="fit-width" aria-label="Fit width" onClick={() => fit('width')}>Width</button>
           </div>
         </div>
       </div>
     </div>
+    <input className="visually-hidden" ref={importInput} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" aria-label="Insert PDF or images as pages" onChange={event => {
+      const files = Array.from(event.target.files ?? [])
+      event.target.value = ''
+      if (files.length) void insertFiles(files)
+    }} />
+    {importing && <div className="busy-overlay" role="status"><div><LoaderCircle className="spin" size={25} /><strong>{importing}</strong><span>Adding pages after page {pageIndex + 1}. Keep this window open.</span></div></div>}
+    {panel === 'insert' && <Dialog title="Insert pages" onClose={() => setPanel(null)}>
+      <p>Add pages immediately after page {pageIndex + 1}. Existing pages and handwriting stay unchanged.</p>
+      <div className="document-actions">
+        <button className="secondary" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={19} /> Blank page</button>
+        <button className="secondary" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><ImagePlus size={19} /> Images as pages</button>
+        <button className="secondary" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><FileUp size={19} /> PDF pages</button>
+      </div>
+      <p>Choose PNG, JPEG, WebP or PDF files. Up to 50 inserted pages per operation and 500 pages per notebook. Images become full-page backgrounds you can write on.</p>
+    </Dialog>}
+    {panel === 'tools' && <Dialog title="Tool settings" onClose={() => setPanel(null)}>
+      {tool !== 'eraser' && <div className="tool-group color-group" aria-label="Ink colors">{colors.map(value => <button key={value} className={`color-swatch ${value === color ? 'active' : ''}`} style={{ '--swatch': value } as React.CSSProperties} aria-label={`Ink color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} />)}</div>}
+      <label className="field">{tool === 'eraser' ? 'Eraser size' : 'Stroke width'}<input aria-label={tool === 'eraser' ? 'Eraser size' : 'Stroke width'} type="range" min={tool === 'eraser' ? 4 : 1} max={tool === 'eraser' ? 40 : 8} step={tool === 'eraser' ? 2 : 0.5} value={tool === 'eraser' ? eraserRadius : width} onChange={e => tool === 'eraser' ? setEraserRadius(Number(e.target.value)) : setWidth(Number(e.target.value))} /></label>
+    </Dialog>}
+    {panel === 'document' && <Dialog title="Notebook options" onClose={() => setPanel(null)}>
+      <label className="field">Paper template<select aria-label="Paper template" disabled={Boolean(page.background)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select></label>
+      {page.background && <p>This page uses an imported image or PDF background.</p>}
+      <div className="document-actions">
+        <button className="secondary" onClick={() => { setPanel(null); onPdf() }}><FileDown size={18} /> Export PDF</button>
+        <button className="secondary" aria-label="Download notebook backup" onClick={() => { setPanel(null); onBackup() }}><Download size={18} /> Editable backup</button>
+        {installAction}
+        <button className="secondary" onClick={() => { setPanel(null); onHelp() }}>Help & storage</button>
+        <button className="secondary danger" aria-label="Delete notebook" onClick={() => { setPanel(null); onDelete() }}><Trash2 size={18} /> Delete notebook</button>
+      </div>
+    </Dialog>}
   </main>
 }
 
