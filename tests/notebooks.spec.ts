@@ -1,5 +1,14 @@
-import { expect, test, type Page } from '@playwright/test'
-import { PDFDocument } from 'pdf-lib'
+import { expect, test, type Page, type Download } from '@playwright/test'
+import { PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib'
+import { inflateSync } from 'node:zlib'
+
+async function downloadBytes(download: Download): Promise<Buffer> {
+  const stream = await download.createReadStream()
+  if (!stream) throw new Error('Download stream missing')
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks)
+}
 
 async function createNotebook(page: Page, title = 'Field notes', keepDefaults = false) {
   await page.getByRole('button', { name: 'Create a notebook', exact: true }).click()
@@ -222,6 +231,44 @@ test('invalid in-notebook imports fail atomically without adding partial pages',
   })
   await expect(page.getByRole('alert')).toContainText('up to 50 pages')
   await expect(page.getByRole('button', { name: 'Show page overview', exact: true })).toHaveText('Page 1 of 1')
+})
+
+test('PDF exports align all pages and retain original image resolution and PDF vector text after reload', async ({ page }) => {
+  await createNotebook(page, 'Export fidelity')
+  const image = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 2400; canvas.height = 3200
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height)
+    context.fillStyle = '#123456'; context.fillRect(100, 100, 2200, 25)
+    return canvas.toDataURL('image/png').split(',')[1]
+  })
+  const source = await PDFDocument.create()
+  source.addPage([900, 500]).drawText('Original source text', { x: 40, y: 400 })
+  source.addPage([400, 700]).drawText('Portrait source', { x: 30, y: 600 })
+  await page.getByLabel('Insert PDF or images as pages').setInputFiles([
+    { name: 'full-resolution.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') },
+    { name: 'vector.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await source.save()) },
+  ])
+  await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 2 of 4')
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Export fidelity')
+  const downloaded = page.waitForEvent('download')
+  await documentAction(page, 'Export PDF')
+  const exported = await PDFDocument.load(await downloadBytes(await downloaded))
+  expect(exported.getPageCount()).toBe(4)
+  for (const output of exported.getPages()) expect(output.getSize()).toEqual({ width: 595.5, height: 842.25 })
+  const imageSizes: number[][] = []
+  let vectorText = ''
+  for (const [, object] of exported.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFRawStream)) continue
+    const subtype = object.dict.get(PDFName.of('Subtype'))?.toString()
+    if (subtype === '/Image') imageSizes.push([object.dict.lookup(PDFName.of('Width'), PDFNumber).asNumber(), object.dict.lookup(PDFName.of('Height'), PDFNumber).asNumber()])
+    if (subtype === '/Form') vectorText += (object.dict.get(PDFName.of('Filter'))?.toString() === '/FlateDecode' ? inflateSync(object.getContents()) : Buffer.from(object.getContents())).toString()
+  }
+  expect(imageSizes).toContainEqual([2400, 3200])
+  expect(vectorText).toContain(Buffer.from('Original source text').toString('hex').toUpperCase())
 })
 
 test('creates, draws, undoes/redoes, changes pages, and persists after reload', async ({ page }) => {

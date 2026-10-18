@@ -31,12 +31,16 @@ separate from storage, file processing, and browser lifecycle effects.
 | [render.ts](../src/render.ts) | Canvas rendering |
 | [eraser.ts](../src/eraser.ts) | Partial ink erasing |
 | [files.ts](../src/files.ts) | Local PDF/image import and file export |
+| [assets.ts](../src/assets.ts) | Original source bytes, MIME detection and JPEG orientation |
+| [pdf.ts](../src/pdf.ts) | Uniform-size, vector/source-preserving PDF export |
 | [navigation.ts](../src/navigation.ts) | Device defaults and page-turn recognition |
 | [hooks/](../src/hooks/) | Storage coordination, PWA and viewport lifecycle |
 | [components/](../src/components/) | Library, editor, writing surface, and dialogs |
 | [tests/](../tests/) | Browser workflows |
 
-Only changed page records are written; page backgrounds are stored separately.
+Only changed page records are written; page previews and original source assets
+are stored separately. Database version 2 upgrades existing libraries without
+clearing notes. Each imported PDF is stored once and referenced by its pages.
 The current startup path still loads all notebook data, so lazy loading remains
 an area for improvement with large libraries.
 

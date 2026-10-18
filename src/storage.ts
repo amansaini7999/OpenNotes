@@ -1,18 +1,20 @@
 import { openDB, type DBSchema } from 'idb'
-import { backupSchema, emptyLibrary, type Library, type Notebook, type NotePage } from './model'
+import { backupSchema, emptyLibrary, type Library, type Notebook, type NotePage, type SourceAsset } from './model'
 
 interface NotesDB extends DBSchema {
-  notebooks: { key: string; value: Omit<Notebook, 'pages'> & { pageIds: string[] } }
+  notebooks: { key: string; value: Omit<Notebook, 'pages' | 'sources'> & { pageIds: string[]; sourceIds?: string[] } }
   pages: { key: string; value: Omit<NotePage, 'background'> }
   images: { key: string; value: string }
+  assets: { key: string; value: SourceAsset }
 }
 
 export function createStorage(name = 'opennotes-v1') {
-  const database = openDB<NotesDB>(name, 1, {
+  const database = openDB<NotesDB>(name, 2, {
     upgrade(db) {
-      db.createObjectStore('notebooks')
-      db.createObjectStore('pages')
-      db.createObjectStore('images')
+      if (!db.objectStoreNames.contains('notebooks')) db.createObjectStore('notebooks')
+      if (!db.objectStoreNames.contains('pages')) db.createObjectStore('pages')
+      if (!db.objectStoreNames.contains('images')) db.createObjectStore('images')
+      if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets')
     },
     blocking(_current, _blocked, event) { (event.target as IDBDatabase).close() },
   })
@@ -21,10 +23,15 @@ export function createStorage(name = 'opennotes-v1') {
   return {
     async load(): Promise<Library> {
       const db = await database
-      const tx = db.transaction(['notebooks', 'pages', 'images'], 'readonly')
+      const tx = db.transaction(['notebooks', 'pages', 'images', 'assets'], 'readonly')
       const records = await tx.objectStore('notebooks').getAll()
-      const notebooks = await Promise.all(records.map(async ({ pageIds, ...record }) => ({
+      const notebooks = await Promise.all(records.map(async ({ pageIds, sourceIds = [], ...record }) => ({
         ...record,
+        sources: await Promise.all(sourceIds.map(async id => {
+          const asset = await tx.objectStore('assets').get(id)
+          if (!asset) throw new Error('An original source file is missing. Do not clear site data; recover an editable backup.')
+          return asset
+        })),
         pages: await Promise.all(pageIds.map(async id => {
           const [page, background] = await Promise.all([
             tx.objectStore('pages').get(id),
@@ -44,13 +51,14 @@ export function createStorage(name = 'opennotes-v1') {
       // Callers use immutable updates. Only changed page records are written; PDF images stay separate.
       const write = queue.then(async () => {
         const db = await database
-        const tx = db.transaction(['notebooks', 'pages', 'images'], 'readwrite', { durability: 'strict' })
+        const tx = db.transaction(['notebooks', 'pages', 'images', 'assets'], 'readwrite', { durability: 'strict' })
         const operations: Promise<unknown>[] = []
         try {
         const remaining = new Set(library.notebooks.map(note => note.id))
         for (const old of persisted.notebooks) {
           if (remaining.has(old.id)) continue
           operations.push(tx.objectStore('notebooks').delete(old.id))
+          for (const asset of old.sources) operations.push(tx.objectStore('assets').delete(asset.id))
           for (const page of old.pages) {
             operations.push(tx.objectStore('pages').delete(page.id), tx.objectStore('images').delete(page.id))
           }
@@ -58,8 +66,15 @@ export function createStorage(name = 'opennotes-v1') {
         for (const note of library.notebooks) {
           const old = persisted.notebooks.find(value => value.id === note.id)
           if (old === note) continue
-          const { pages, ...metadata } = note
-          operations.push(tx.objectStore('notebooks').put({ ...metadata, pageIds: pages.map(page => page.id) }, note.id))
+          const { pages, sources, ...metadata } = note
+          operations.push(tx.objectStore('notebooks').put({ ...metadata, pageIds: pages.map(page => page.id), sourceIds: sources.map(asset => asset.id) }, note.id))
+          for (const asset of sources) {
+            if (old?.sources.find(value => value.id === asset.id) !== asset) operations.push(tx.objectStore('assets').put(asset, asset.id))
+          }
+          const sourceIds = new Set(sources.map(asset => asset.id))
+          for (const asset of old?.sources ?? []) {
+            if (!sourceIds.has(asset.id)) operations.push(tx.objectStore('assets').delete(asset.id))
+          }
           const pageIds = new Set(pages.map(page => page.id))
           for (const previous of old?.pages ?? []) {
             if (!pageIds.has(previous.id)) {

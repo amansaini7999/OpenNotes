@@ -105,9 +105,9 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
     setPanel(null)
     setImporting('Preparing pages…')
     try {
-      const pages = await importPageFiles(files, 500 - notebook.pages.length, setImporting)
-      onUpdate(note => insertPagesAfter(note, afterId, pages))
-      setPageId(pages[0].id)
+      const imported = await importPageFiles(files, 500 - notebook.pages.length, setImporting)
+      onUpdate(note => insertPagesAfter(note, afterId, imported.pages, imported.sources))
+      setPageId(imported.pages[0].id)
     } catch (cause: unknown) {
       onError(cause instanceof Error ? cause.message : 'Pages could not be imported. No pages were added.')
     } finally { setImporting('') }
