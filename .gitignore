@@ -1,0 +1,14 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.playwright-mcp/
+*.tsbuildinfo
+*.local
+.local/
+*.apk
+*.exe
+*.zip
+*.goodnotes
+public/pdfjs/
+.DS_Store
