@@ -26,13 +26,13 @@ No account, subscription, or cloud service required.
 ## Features
 
 - **Write naturally** — pressure-sensitive ink, a translucent highlighter,
-  whole-stroke erasing, and undo/redo.
+  an adjustable circular eraser that removes only the touched ink, and undo/redo.
 - **Make it yours** — named notebooks, colorful covers, multiple pages, and
   dotted, ruled, or plain paper.
 - **Bring your documents** — import PDFs, annotate their pages, and export
   your work as a PDF.
-- **Move around freely** — pan, zoom, fit a page to the screen, and switch
-  to Pencil-only drawing when you want fingers to navigate.
+- **Move around freely** — pan, zoom, fit a page to the screen, and navigate
+  with two fingers while automatic palm protection keeps touch out of your ink.
 - **Keep ownership** — local autosave, editable `.opennotes` backups, and
   restore/import without overwriting existing notebooks.
 - **Work offline** — application assets and PDF resources are cached locally.
@@ -46,6 +46,10 @@ No account, subscription, or cloud service required.
 open it in Safari and choose **Share → Add to Home Screen**. No account,
 certificate setup, or local server is needed. Wait for **Help & install** to
 confirm offline readiness before disconnecting.
+
+The **Install app** button at the top of the page shows step-by-step iPad and
+desktop instructions. iPad installation uses the browser's Home Screen action;
+there is no app package to download.
 
 The website delivers application files; your notebooks remain in your browser.
 GitHub Pages may log normal website requests, including IP addresses.
@@ -94,7 +98,10 @@ local desktop use.
 > `.opennotes` file somewhere safe.
 
 The save indicator confirms when a local transaction completes. Strokes are
-saved after pointer release; an interrupted in-progress stroke is discarded.
+saved after pointer release. If pen input is cancelled or capture is lost,
+already sampled pen ink is committed without adding unreliable cancellation
+coordinates. Cancelled touch/mouse strokes and eraser gestures are discarded.
+This does not guarantee recovery if the process closes before input is handled.
 Storage failures are shown explicitly, with retry and backup recovery options.
 Only one tab may edit the library at a time.
 
@@ -150,13 +157,22 @@ validation. Browser emulation does not establish hardware compatibility.
 | --- | --- |
 | Pen | `P` |
 | Highlighter | `H` |
-| Stroke eraser | `E` |
+| Eraser | `E` |
 | Pan | `V` |
 | Undo | `Ctrl` / `Cmd` + `Z` |
 | Redo | `Ctrl` / `Cmd` + `Shift` + `Z` |
 
-Two fingers pan and zoom. Enable **Pencil only** to use fingers for navigation
-instead of drawing.
+Palm protection is automatic on iPad and turns on when a pen is first detected;
+there is no Pencil-only checkbox to configure.
+One touch does not draw or pan in this mode; use two fingers to navigate
+or explicitly select the Pan tool for one-finger navigation. Touches during pen
+contact and for 700 ms afterward are ignored, reducing palm interference.
+This is an app-level input policy, not native hardware palm classification.
+
+The eraser previews changes as you move and cuts only the portion of ink under
+its circular tip, including highlights. Adjust **Eraser size** in the toolbar.
+An eraser gesture is one undo action. Page templates and PDF backgrounds are
+not erased.
 
 ## Current scope
 
@@ -206,6 +222,10 @@ React manages the interface; live ink rendering stays outside React's render
 loop. Document transformations and geometry use pure functions, with
 persistence and file operations kept in separate modules.
 
+The drawing surface retains its live canvas between saved strokes and renders
+new pen segments incrementally. The app follows the browser's visible viewport
+height, with notebook scrolling kept inside the workspace rather than the page.
+
 ### Run checks
 
 ```powershell
@@ -219,7 +239,8 @@ npm run test:e2e
 
 Tests cover ink geometry and rendered pixels, pressure input, multi-touch zoom,
 document validation, persistence, offline startup, offline PDF operations,
-backup recovery, storage failures, concurrent tabs, and responsive layouts.
+backup recovery, storage failures, concurrent tabs, installation guidance,
+viewport-height changes, interrupted pen input, rapid strokes, and responsive layouts.
 Chromium-specific input-injection tests are intentionally skipped in WebKit.
 
 ## Contributing

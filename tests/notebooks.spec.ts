@@ -49,6 +49,33 @@ async function strokeCount(page: Page): Promise<number> {
 
 test.beforeEach(async ({ page }) => { await page.goto('./') })
 
+test('installation is discoverable and explains iPad Home Screen installation', async ({ page }) => {
+  await page.getByRole('button', { name: 'Install app', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install OpenNotes' })
+  await expect(dialog).toContainText('Safari')
+  await expect(dialog).toContainText('Add to Home Screen')
+  await expect(dialog).toContainText('not a downloaded file')
+  await dialog.getByRole('button', { name: 'Close dialog' }).click()
+  await expect(dialog).not.toBeVisible()
+})
+
+test('the app fills the visible viewport without document scrolling after height changes', async ({ page }) => {
+  for (const height of [1050, 750, 430]) {
+    await page.setViewportSize({ width: 834, height })
+    await expect.poll(() => page.evaluate(() => {
+      const app = document.querySelector('.app-shell')!.getBoundingClientRect()
+      return Math.abs(app.bottom - (visualViewport?.height ?? innerHeight))
+    })).toBeLessThanOrEqual(1)
+    await page.evaluate(() => window.scrollTo(0, 1000))
+    expect(await page.evaluate(() => scrollY)).toBe(0)
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true)
+  }
+  await createNotebook(page, 'Viewport')
+  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Fit page' })).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true)
+})
+
 test('creates, draws, undoes/redoes, changes pages, and persists after reload', async ({ page }) => {
   await createNotebook(page)
   await draw(page)
@@ -67,19 +94,55 @@ test('creates, draws, undoes/redoes, changes pages, and persists after reload', 
   expect(await strokeCount(page)).toBe(2)
 })
 
-test('eraser removes a crossed stroke and undo restores it', async ({ page }) => {
+test('area eraser previews a cut, preserves both ends, and supports undo/redo and reload', async ({ page }) => {
   await createNotebook(page)
+  await page.getByRole('combobox', { name: 'Paper template' }).selectOption('plain')
   await draw(page)
-  await page.getByRole('button', { name: 'Stroke eraser', exact: true }).click()
+  await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+  await expect(page.getByRole('slider', { name: 'Eraser size' })).toBeVisible()
   const paper = await page.getByTestId('paper').boundingBox()
   if (!paper) throw new Error('Paper did not render')
   await page.mouse.move(paper.x + paper.width * 0.4, paper.y + paper.height * 0.2)
   await page.mouse.down()
   await page.mouse.move(paper.x + paper.width * 0.4, paper.y + paper.height * 0.5, { steps: 10 })
+  await expect.poll(() => page.getByTestId('ink-canvas').evaluate((canvas: HTMLCanvasElement) => {
+    const pixel = canvas.getContext('2d')!.getImageData(Math.round(canvas.width * 0.4), Math.round(canvas.height * 0.325), 1, 1).data
+    return Math.min(pixel[0], pixel[1], pixel[2])
+  })).toBeGreaterThan(240)
+  expect(await strokeCount(page)).toBe(1)
   await page.mouse.up()
-  await expect.poll(() => strokeCount(page)).toBe(0)
+  await expect.poll(() => strokeCount(page)).toBe(2)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect.poll(() => strokeCount(page)).toBe(1)
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect.poll(() => strokeCount(page)).toBe(2)
+  await page.reload()
+  await expect.poll(() => strokeCount(page)).toBe(2)
+})
+
+test('cancelled eraser previews restore the original ink', async ({ page }) => {
+  await createNotebook(page, 'Cancelled eraser')
+  await page.getByRole('combobox', { name: 'Paper template' }).selectOption('plain')
+  await draw(page)
+  const paper = await page.getByTestId('paper').boundingBox()
+  if (!paper) throw new Error('Paper missing')
+  await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+  await page.getByTestId('ink-viewport').evaluate(element => {
+    element.addEventListener('pointerdown', event => element.setAttribute('data-pointer-id', String((event as PointerEvent).pointerId)), { once: true })
+  })
+  await page.mouse.move(paper.x + paper.width * 0.4, paper.y + paper.height * 0.2)
+  await page.mouse.down()
+  await page.mouse.move(paper.x + paper.width * 0.4, paper.y + paper.height * 0.5, { steps: 10 })
+  const pointerId = Number(await page.getByTestId('ink-viewport').getAttribute('data-pointer-id'))
+  await page.getByTestId('ink-viewport').dispatchEvent('pointercancel', { pointerId, pointerType: 'mouse' })
+  await page.mouse.up()
+  expect(await strokeCount(page)).toBe(1)
+  await expect.poll(() => page.getByTestId('ink-canvas').evaluate((canvas: HTMLCanvasElement) => {
+    const pixels = canvas.getContext('2d')!.getImageData(Math.round(canvas.width * 0.4) - 4, Math.round(canvas.height * 0.325) - 4, 9, 9).data
+    let darkest = 255
+    for (let i = 0; i < pixels.length; i += 4) darkest = Math.min(darkest, Math.max(pixels[i], pixels[i + 1], pixels[i + 2]))
+    return darkest
+  })).toBeLessThan(180)
 })
 
 test('offline reload and writing work after service-worker activation', async ({ page, context }) => {
@@ -202,7 +265,6 @@ test('layouts fit desktop, iPad and narrow mobile screens without horizontal ove
 test('Chromium pen input retains pressure samples', async ({ page, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'CDP pressure injection is a Chromium-only browser test, not real Pencil certification.')
   await createNotebook(page, 'Pen pressure')
-  await page.getByRole('checkbox', { name: 'Pencil only' }).check()
   const paper = await page.getByTestId('paper').boundingBox()
   if (!paper) throw new Error('Paper missing')
   const session = await context.newCDPSession(page)
@@ -228,6 +290,56 @@ test('Chromium pen input retains pressure samples', async ({ page, context, brow
   await session.detach()
 })
 
+test('interrupted pen strokes survive cancellation and capture loss without duplicating or blocking later strokes', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Pen injection uses CDP; physical Pencil cancellation still requires iPad validation.')
+  await createNotebook(page, 'Interrupted pen')
+  const paper = await page.getByTestId('paper').boundingBox()
+  if (!paper) throw new Error('Paper missing')
+  const session = await context.newCDPSession(page)
+  const x = paper.x + paper.width * 0.3, y = paper.y + paper.height * 0.3
+  for (const [index, interruption] of ['pointercancel', 'lostpointercapture'].entries()) {
+    const startY = y + index * 30
+    await page.getByTestId('ink-viewport').evaluate(element => {
+      element.addEventListener('pointerdown', event => element.setAttribute('data-pointer-id', String((event as PointerEvent).pointerId)), { once: true })
+    })
+    await session.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y: startY, button: 'left', buttons: 1, clickCount: 1, pointerType: 'pen', force: 0.3 })
+    const pointerId = Number(await page.getByTestId('ink-viewport').getAttribute('data-pointer-id'))
+    await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + 50, y: startY + 10, button: 'left', buttons: 1, pointerType: 'pen', force: 0.8 })
+    await page.getByTestId('ink-viewport').dispatchEvent(interruption, { pointerId, pointerType: 'pen', clientX: 0, clientY: 0 })
+    await session.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + 50, y: startY + 10, button: 'left', buttons: 0, clickCount: 1, pointerType: 'pen', force: 0 })
+    await expect.poll(() => strokeCount(page)).toBe(index + 1)
+  }
+  await session.detach()
+  await draw(page)
+  expect(await strokeCount(page)).toBe(3)
+  await page.reload()
+  await expect.poll(() => strokeCount(page)).toBe(3)
+})
+
+test('rapid consecutive strokes do not reset the live canvas', async ({ page }) => {
+  await createNotebook(page, 'Quick writing')
+  const paper = await page.getByTestId('paper').boundingBox()
+  if (!paper) throw new Error('Paper missing')
+  await page.evaluate(() => {
+    const canvas = document.querySelector('.paper canvas:last-child')!
+    canvas.setAttribute('data-resize-count', '0')
+    new MutationObserver(records => {
+      const changes = records.filter(record => record.attributeName === 'width' || record.attributeName === 'height').length
+      if (changes) canvas.setAttribute('data-resize-count', String(Number(canvas.getAttribute('data-resize-count')) + changes))
+    }).observe(canvas, { attributes: true, attributeFilter: ['width', 'height'] })
+  })
+  for (let i = 0; i < 12; i++) {
+    await page.mouse.move(paper.x + paper.width * 0.3, paper.y + paper.height * 0.3 + i * 5)
+    await page.mouse.down()
+    await page.mouse.move(paper.x + paper.width * 0.5, paper.y + paper.height * 0.32 + i * 5, { steps: 3 })
+    await page.mouse.up()
+  }
+  await expect.poll(() => strokeCount(page)).toBe(12)
+  await expect(page.locator('.paper canvas:last-child')).toHaveAttribute('data-resize-count', '0')
+  await page.reload()
+  await expect.poll(() => strokeCount(page)).toBe(12)
+})
+
 test('Chromium two-finger pinch changes zoom without leaving accidental ink', async ({ page, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'CDP multi-touch injection is Chromium-only; hardware gestures still need iPad testing.')
   await createNotebook(page, 'Gestures')
@@ -242,6 +354,49 @@ test('Chromium two-finger pinch changes zoom without leaving accidental ink', as
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await expect.poll(async () => (await page.getByTestId('paper').boundingBox())?.width ?? 0).toBeGreaterThan(initial * 1.5)
   expect(await strokeCount(page)).toBe(0)
+  await session.detach()
+})
+
+test('iPad automatically ignores finger ink without exposing a Pencil-only toggle', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'The desktop project intentionally permits mouse and touch drawing by default.')
+  await createNotebook(page, 'Palm-safe defaults')
+  const paper = await page.getByTestId('paper').boundingBox()
+  if (!paper) throw new Error('Paper missing')
+  await page.touchscreen.tap(paper.x + paper.width * 0.4, paper.y + paper.height * 0.3)
+  expect(await strokeCount(page)).toBe(0)
+  await expect(page.getByRole('checkbox', { name: 'Pencil only' })).toHaveCount(0)
+})
+
+test('palm-like touch cannot draw or pan before, during or just after a pen stroke', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Simultaneous pen and touch injection uses CDP, not actual iPad palm classification.')
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { value: 'MacIntel' })
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 })
+  })
+  await page.reload()
+  await createNotebook(page, 'Palm guard')
+  const paper = await page.getByTestId('paper').boundingBox()
+  if (!paper) throw new Error('Paper missing')
+  const original = await page.getByTestId('paper').getAttribute('style')
+  const session = await context.newCDPSession(page)
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+  const x = paper.x + paper.width * 0.35, y = paper.y + paper.height * 0.4
+  const palm = async (count: number) => {
+    const touches = Array.from({ length: count }, (_, index) => ({ id: index + 1, x: x + index * 30, y, radiusX: 35, radiusY: 25 }))
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: touches })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: touches.map(point => ({ ...point, x: point.x + 40, y: point.y + 20 })) })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  }
+  await palm(1)
+  expect(await strokeCount(page)).toBe(0)
+  await expect(page.getByTestId('paper')).toHaveAttribute('style', original!)
+  await session.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'pen', force: 0.5 })
+  await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + 20, y: y + 10, button: 'left', buttons: 1, pointerType: 'pen', force: 0.7 })
+  await palm(2)
+  await session.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + 20, y: y + 10, button: 'left', buttons: 0, clickCount: 1, pointerType: 'pen', force: 0 })
+  await palm(2)
+  await expect.poll(() => strokeCount(page)).toBe(1)
+  await expect(page.getByTestId('paper')).toHaveAttribute('style', original!)
   await session.detach()
 })
 

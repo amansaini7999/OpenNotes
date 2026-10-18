@@ -7,10 +7,13 @@ import { usePwa } from './hooks/usePwa'
 import { NotebookLibrary } from './components/NotebookLibrary'
 import { NotebookEditor } from './components/NotebookEditor'
 import { Dialog } from './components/Dialog'
+import { InstallApp } from './components/InstallApp'
+import { useViewportHeight } from './hooks/useViewportHeight'
 
 type Modal = 'create' | 'help' | 'delete' | null
 
 export default function App() {
+  useViewportHeight()
   const { library, status, error: storageError, update, retry } = useLibrary()
   const pwa = usePwa()
   const [activeId, setActiveId] = useState<string | null>(() => new URLSearchParams(location.hash.slice(1)).get('notebook'))
@@ -108,7 +111,7 @@ export default function App() {
           {status === 'saving' || status === 'loading' ? <LoaderCircle size={14} className="spin" /> : status === 'error' ? <X size={14} /> : <Check size={14} />}
           {status === 'loading' ? 'Opening your workspace' : status === 'saving' ? 'Saving on this device…' : status === 'error' ? 'Not saved — action needed' : 'Saved on this device'}
         </span>
-        <span className="connection-state">{!pwa.online ? <><WifiOff size={14} /> Offline</> : <><HardDrive size={14} /> Local-first</>}</span>
+        <div className="status-actions"><span className="connection-state">{!pwa.online ? <><WifiOff size={14} /> Offline</> : <><HardDrive size={14} /> Local-first</>}</span><InstallApp offlineReady={pwa.offlineReady} /></div>
       </div>
       {(storageError || error || pwa.registrationError) && <div className="message error" role="alert"><span>{storageError || error || pwa.registrationError}</span>{storageError ? <><button onClick={retry}>Retry save</button><button disabled={!library} onClick={() => library && exportBackup(library)}>Export backup</button></> : error ? <button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button> : <button onClick={() => setModal('help')}>Offline help</button>}</div>}
       {notice && <div className="message notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}
@@ -147,7 +150,7 @@ export default function App() {
         <h3>Install on your iPad</h3><p>Open a trusted HTTPS copy in Safari, then use Share → Add to Home Screen. On Chrome desktop, use the browser’s Install option. A first load is required; double-clicking an HTML file does not install a PWA.</p>
         <h3>Local does not mean backed up</h3><p>Clearing site data, removing the app, changing its address, or storage eviction can lose notes. Use “Back up everything” regularly. There is no automatic cloud sync. HTTP localhost on Windows and HTTPS on iPad are separate libraries.</p>
         <button className="secondary" onClick={() => void requestPersistence()}><ShieldCheck size={17} /> Request storage protection</button>
-        <h3>Writing & shortcuts</h3><p>Use P for pen, H for highlighter, E for whole-stroke eraser and V to pan. Ctrl/Cmd+Z undoes; Shift adds redo. Two fingers pan/zoom. “Pencil only” makes fingers pan instead of draw. Browser palm rejection varies; verify on your iPad.</p>
+        <h3>Writing & shortcuts</h3><p>Use P for pen, H for highlighter, E for eraser and V to pan. The circular eraser removes only the ink under its tip; adjust Eraser size to change its radius. Ctrl/Cmd+Z undoes; Shift adds redo. Palm protection starts automatically on iPad and when a pen is first detected. One touch does nothing, two fingers pan/zoom, and the Pan tool explicitly enables one-finger navigation. Touches are ignored during and briefly after pen input to reduce palm interference. Browser palm classification is limited; verify on your iPad.</p>
         <h3>Files & limits</h3><p>Import PDFs up to 30 MB / 50 pages. PDF pages are rasterized; exports preserve appearance, not selectable PDF text. Editable .opennotes backups use our own format, not .goodnotes. No handwriting recognition, audio recording, cloud sync, or Goodnotes-format import is included.</p>
         <p className="quiet">OpenNotes is independent and is not affiliated with Goodnotes.</p>
       </div>

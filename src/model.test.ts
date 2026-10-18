@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backupSchema, createNotebook, createPage, distanceToSegment, emptyLibrary, eraseStrokes, mergeBackup, pressureWidth, readBackup, safeFilename, type Point, type Stroke } from './model'
+import { backupSchema, createNotebook, createPage, distanceToSegment, emptyLibrary, mergeBackup, pressureWidth, readBackup, safeFilename, type Point, type Stroke } from './model'
 
 const point = (x: number, y: number): Point => ({ x, y, pressure: 0.5 })
 const stroke = (points: Point[]): Stroke => ({ id: crypto.randomUUID(), tool: 'pen', color: '#253a43', width: 3, points })
@@ -58,26 +58,6 @@ describe('ink geometry', () => {
     expect(distanceToSegment(point(5, 4), point(0, 0), point(10, 0))).toBe(4)
     expect(distanceToSegment(point(13, 4), point(0, 0), point(10, 0))).toBe(5)
     expect(distanceToSegment(point(3, 4), point(0, 0), point(0, 0))).toBe(5)
-  })
-  it('erases intersections between samples rather than only sampled points', () => {
-    const hit = stroke([point(0, 50), point(100, 50)])
-    const keep = stroke([point(200, 200), point(300, 200)])
-    expect(eraseStrokes([hit, keep], [point(50, 0), point(50, 100)], 3)).toEqual([keep])
-  })
-  it('erases dots and respects nearby stroke width', () => {
-    const dot = stroke([point(10, 10)])
-    expect(eraseStrokes([dot], [point(10, 12)], 2)).toEqual([])
-    expect(eraseStrokes([dot], [point(50, 50)], 2)).toEqual([dot])
-  })
-  it('does not mutate original strokes', () => {
-    const ink = [stroke([point(0, 0), point(10, 10)])]
-    eraseStrokes(ink, [point(5, 5)], 3)
-    expect(ink).toHaveLength(1)
-    expect(ink[0].points).toHaveLength(2)
-  })
-  it('erases the visible edges of a wide highlighter', () => {
-    const marker: Stroke = { ...stroke([point(10, 20), point(100, 20)]), tool: 'highlighter', width: 8 }
-    expect(eraseStrokes([marker], [point(50, 39)], 1)).toEqual([])
   })
   it('maps pressure to positive bounded widths', () => {
     expect(pressureWidth(4, 0)).toBeCloseTo(1.4)
