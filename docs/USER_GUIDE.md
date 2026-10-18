@@ -35,9 +35,21 @@ Import limits:
 - Batch: 50 inserted pages and 100 MB.
 - Notebook: 500 pages.
 
-A failed batch does not insert partial results. Imported pages are rasterized;
-PDF export preserves appearance, not selectable source text or editable PDF
-annotations. Undo/redo retains up to 50 actions per page during the session.
+A failed batch does not insert partial results. Screen previews are optimized,
+but new imports retain their original PDF/image files separately. PDF export
+uses the first notebook page's paper size for every page, fitting attachments
+proportionally with margins and no cropping. Source PDF page content remains
+vector-based, and source images retain their pixel resolution without extra
+JPEG recompression. Ink is exported as vectors.
+
+JPEG orientation and WebP conversion use lossless PNG output; conversions above
+16 million pixels fail explicitly rather than silently reducing quality.
+Original files and editable ink are included in `.opennotes` backups. Interactive
+PDF forms, links and annotation editing are not preserved as interactive features.
+Older imports that only retained a preview cannot regain lost detail; re-import
+the original file to use source-quality export.
+
+Undo/redo retains up to 50 actions per page during the session.
 
 ## Saving and backups
 

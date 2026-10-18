@@ -2,8 +2,44 @@ import { describe, expect, it, vi } from 'vitest'
 import { deleteDB, openDB } from 'idb'
 import { createNotebook, emptyLibrary } from './model'
 import { createStorage } from './storage'
+import { createSourceAsset, decodeBase64 } from './assets'
 
 describe('durable local storage', () => {
+  it('upgrades a version-one library without losing notebooks or background images', async () => {
+    const name = crypto.randomUUID()
+    const old = await openDB(name, 1, { upgrade(db) {
+      db.createObjectStore('notebooks'); db.createObjectStore('pages'); db.createObjectStore('images')
+    } })
+    const note = createNotebook('Before upgrade')
+    const { pages, sources: _sources, ...metadata } = note
+    await old.put('notebooks', { ...metadata, pageIds: pages.map(page => page.id) }, note.id)
+    await old.put('pages', pages[0], pages[0].id)
+    await old.put('images', 'data:image/jpeg;base64,YQ==', pages[0].id)
+    old.close()
+    const store = createStorage(name)
+    const upgraded = await store.load()
+    expect(upgraded.notebooks[0].title).toBe('Before upgrade')
+    expect(upgraded.notebooks[0].pages[0].background).toBe('data:image/jpeg;base64,YQ==')
+    expect(upgraded.notebooks[0].sources).toEqual([])
+    await store.close()
+    await deleteDB(name)
+  })
+  it('stores one original source separately from its page previews and removes it on notebook deletion', async () => {
+    const name = crypto.randomUUID(), store = createStorage(name)
+    const note = createNotebook('Original')
+    const asset = createSourceAsset(decodeBase64('JVBERi0xLjQ='), 'pdf')
+    note.sources = [asset]
+    note.pages[0].source = { assetId: asset.id, pageIndex: 0 }
+    await store.save({ ...emptyLibrary(), notebooks: [note] })
+    expect((await store.load()).notebooks[0].sources[0].data).toBe(asset.data)
+    const db = await openDB(name)
+    expect(await db.count('assets')).toBe(1)
+    await store.save(emptyLibrary())
+    expect(await db.count('assets')).toBe(0)
+    db.close()
+    await store.close()
+    await deleteDB(name)
+  })
   it('rolls back a partially scheduled write and permits a later retry', async () => {
     const name = crypto.randomUUID(), store = createStorage(name)
     const original = IDBObjectStore.prototype.put

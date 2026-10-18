@@ -19,12 +19,20 @@ const strokeSchema = z.object({
   points: z.array(pointSchema).min(1),
 })
 const backgroundSchema = z.string().max(8_000_000).regex(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/)
+const sourceAssetSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['pdf', 'image']),
+  mime: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']),
+  data: z.string().min(4).max(45_000_000).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  pageCount: z.number().int().min(1).max(50),
+}).refine(asset => asset.kind === 'pdf' ? asset.mime === 'application/pdf' : asset.mime !== 'application/pdf' && asset.pageCount === 1, 'Invalid source asset type.')
 const pageSchema = z.object({
   id: z.string().uuid(),
   template: z.enum(['dotted', 'ruled', 'plain']),
   width: z.number().min(100).max(2000),
   height: z.number().min(100).max(3000),
   background: backgroundSchema.optional(),
+  source: z.object({ assetId: z.string().uuid(), pageIndex: z.number().int().min(0).max(49) }).optional(),
   strokes: z.array(strokeSchema),
 })
 const notebookSchema = z.object({
@@ -34,17 +42,27 @@ const notebookSchema = z.object({
   createdAt: z.number().finite().nonnegative(),
   updatedAt: z.number().finite().nonnegative(),
   pages: z.array(pageSchema).min(1).max(500),
+  sources: z.array(sourceAssetSchema).default([]),
 })
 export const backupSchema = z.object({
   format: z.literal('opennotes'),
   version: z.literal(1),
   notebooks: z.array(notebookSchema),
 }).superRefine((library, context) => {
-  const notebooks = new Set<string>(), pages = new Set<string>()
+  const notebooks = new Set<string>(), pages = new Set<string>(), assets = new Set<string>()
   for (const notebook of library.notebooks) {
     if (notebooks.has(notebook.id)) context.addIssue({ code: 'custom', message: 'Duplicate notebook identifier.' })
     notebooks.add(notebook.id)
+    const sources = new Map(notebook.sources.map(asset => [asset.id, asset]))
+    for (const asset of notebook.sources) {
+      if (assets.has(asset.id)) context.addIssue({ code: 'custom', message: 'Duplicate source asset identifier.' })
+      assets.add(asset.id)
+    }
     for (const page of notebook.pages) {
+      if (page.source) {
+        const asset = sources.get(page.source.assetId)
+        if (!asset || page.source.pageIndex >= asset.pageCount) context.addIssue({ code: 'custom', message: 'Invalid page source reference.' })
+      }
       if (pages.has(page.id)) context.addIssue({ code: 'custom', message: 'Duplicate page identifier.' })
       pages.add(page.id)
       const strokes = new Set<string>()
@@ -61,6 +79,8 @@ export type NotePage = z.infer<typeof pageSchema>
 export type Notebook = z.infer<typeof notebookSchema>
 export type Library = z.infer<typeof backupSchema>
 export type Template = NotePage['template']
+export type SourceAsset = z.infer<typeof sourceAssetSchema>
+export type ImportedPages = { pages: NotePage[]; sources: SourceAsset[] }
 
 export function createPage(template: Template = 'dotted'): NotePage {
   return { id: crypto.randomUUID(), template, width: PAGE_WIDTH, height: PAGE_HEIGHT, strokes: [] }
@@ -68,10 +88,10 @@ export function createPage(template: Template = 'dotted'): NotePage {
 
 export function createNotebook(title: string, color = coverColors[0], template: Template = 'dotted'): Notebook {
   const now = Date.now()
-  return { id: crypto.randomUUID(), title, color, createdAt: now, updatedAt: now, pages: [createPage(template)] }
+  return { id: crypto.randomUUID(), title, color, createdAt: now, updatedAt: now, pages: [createPage(template)], sources: [] }
 }
 
-export function insertPagesAfter(notebook: Notebook, afterId: string, pages: NotePage[]): Notebook {
+export function insertPagesAfter(notebook: Notebook, afterId: string, pages: NotePage[], sources: SourceAsset[] = []): Notebook {
   const index = notebook.pages.findIndex(page => page.id === afterId)
   if (index < 0) throw new Error('The selected page no longer exists. Select another page and retry.')
   if (!pages.length) throw new Error('The selected files did not contain any pages.')
@@ -85,6 +105,7 @@ export function insertPagesAfter(notebook: Notebook, afterId: string, pages: Not
     ...notebook,
     updatedAt: Date.now(),
     pages: [...notebook.pages.slice(0, index + 1), ...pages, ...notebook.pages.slice(index + 1)],
+    sources: [...notebook.sources, ...sources],
   }
 }
 
@@ -110,13 +131,21 @@ export function mergeBackup(library: Library, imported: Library): Library {
     ...library,
     notebooks: [
       ...library.notebooks,
-      ...imported.notebooks.map(note => ({
-        ...note,
-        id: crypto.randomUUID(),
-        createdAt: now,
-        updatedAt: now,
-        pages: note.pages.map(page => ({ ...page, id: crypto.randomUUID() })),
-      })),
+      ...imported.notebooks.map(note => {
+        const ids = new Map(note.sources.map(asset => [asset.id, crypto.randomUUID()]))
+        return {
+          ...note,
+          id: crypto.randomUUID(),
+          createdAt: now,
+          updatedAt: now,
+          sources: note.sources.map(asset => ({ ...asset, id: ids.get(asset.id)! })),
+          pages: note.pages.map(page => ({
+            ...page,
+            id: crypto.randomUUID(),
+            ...(page.source ? { source: { ...page.source, assetId: ids.get(page.source.assetId)! } } : {}),
+          })),
+        }
+      }),
     ],
   }
 }
