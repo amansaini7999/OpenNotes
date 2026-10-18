@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Download } from '@playwright/test'
 import { PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib'
 import { inflateSync } from 'node:zlib'
+import { createNotebook as notebookFixture, emptyLibrary, mergeBackup } from '../src/model'
 
 async function downloadBytes(download: Download): Promise<Buffer> {
   const stream = await download.createReadStream()
@@ -45,6 +46,11 @@ async function draw(page: Page) {
 
 async function documentAction(page: Page, name: string) {
   await page.getByRole('button', { name, exact: true }).click()
+}
+
+async function confirmRestore(page: Page, copies = false) {
+  await page.getByRole('button', { name: copies ? 'Import as separate copies' : 'Restore notebooks', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: copies ? 'Imported separate copies as requested.' : 'Restore complete:' })).toBeVisible()
 }
 
 async function setPaper(page: Page, template: string) {
@@ -498,10 +504,10 @@ test('exports a valid PDF and an editable backup and restores the backup', async
   expect(JSON.parse(buffer.toString()).notebooks[0].pages[0].strokes).toHaveLength(1)
   await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'restored.opennotes', mimeType: 'application/json', buffer })
   await expect(page.getByRole('dialog', { name: 'Restore backup' })).toContainText('Already present: 1')
-  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await confirmRestore(page)
   await expect(page.getByRole('button', { name: 'Open Backup test', exact: true })).toHaveCount(1)
   await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'copies.opennotes', mimeType: 'application/json', buffer })
-  await page.getByRole('button', { name: 'Import as separate copies', exact: true }).click()
+  await confirmRestore(page, true)
   await expect(page.getByRole('button', { name: 'Open Backup test', exact: true })).toHaveCount(2)
 })
 
@@ -531,13 +537,83 @@ test('backup restore updates a matching notebook and does not replace newer loca
   const input = page.getByLabel('Import PDF or OpenNotes backup')
   await input.setInputFiles({ name: 'newer.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(newer)) })
   await expect(page.getByRole('dialog', { name: 'Restore backup' })).toContainText('Updates from newer backups: 1')
-  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await confirmRestore(page)
   await expect(page.getByRole('button', { name: 'Open Updated from backup', exact: true })).toHaveCount(1)
   await input.setInputFiles({ name: 'older.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(original)) })
   await expect(page.getByRole('dialog', { name: 'Restore backup' })).toContainText('Newer local notebooks kept: 1')
-  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await confirmRestore(page)
   await expect(page.getByRole('button', { name: 'Open Before restore', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open Updated from backup', exact: true })).toHaveCount(1)
+})
+
+test('restoring two notebooks after deleting one and editing the other results in exactly two notebooks', async ({ page }) => {
+  await createNotebook(page, 'First notebook')
+  await page.getByRole('button', { name: 'Back to notebooks', exact: true }).click()
+  await createNotebook(page, 'Second notebook')
+  await page.getByRole('button', { name: 'Back to notebooks', exact: true }).click()
+  const backupEvent = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Back up everything', exact: true }).click()
+  const backup = await downloadBytes(await backupEvent)
+  await page.getByRole('button', { name: 'Notebook actions for First notebook', exact: true }).click()
+  await page.getByRole('button', { name: 'Delete First notebook', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete notebook', exact: true }).click()
+  await page.getByRole('button', { name: 'Open Second notebook', exact: true }).click()
+  await setPaper(page, 'ruled')
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  await page.getByRole('button', { name: 'Back to notebooks', exact: true }).click()
+  await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'two-notebooks.opennotes', mimeType: 'application/json', buffer: backup })
+  const dialog = page.getByRole('dialog', { name: 'Restore backup' })
+  await expect(dialog).toContainText('New notebooks: 1')
+  await expect(dialog).toContainText('Newer local notebooks kept: 1')
+  await expect(dialog.getByRole('combobox')).toHaveCount(0)
+  await confirmRestore(page)
+  await expect(page.getByRole('button', { name: /^Open / })).toHaveCount(2)
+  await page.reload()
+  await expect(page.getByRole('button', { name: /^Open / })).toHaveCount(2)
+  await page.getByRole('button', { name: 'Open Second notebook', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Paper template' })).toHaveValue('ruled')
+})
+
+test('changed legacy-ID notebooks require a restore choice and do not automatically add a third notebook', async ({ page }) => {
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  const first = notebookFixture('First notebook'), second = notebookFixture('Second notebook')
+  const original = { ...emptyLibrary(), notebooks: [first, second] }
+  const survivor = mergeBackup(emptyLibrary(), { ...emptyLibrary(), notebooks: [second] }).notebooks[0]
+  survivor.pages[0].template = 'ruled'
+  survivor.updatedAt = second.updatedAt + 1000
+  const input = page.getByLabel('Import PDF or OpenNotes backup')
+  await input.setInputFiles({ name: 'legacy.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...emptyLibrary(), notebooks: [survivor] })) })
+  await confirmRestore(page)
+  const buffer = Buffer.from(JSON.stringify(original))
+  await input.setInputFiles({ name: 'original.opennotes', mimeType: 'application/json', buffer })
+  const dialog = page.getByRole('dialog', { name: 'Restore backup' })
+  await expect(dialog).toContainText('New notebooks: 1')
+  await expect(page.getByRole('button', { name: 'Restore notebooks', exact: true })).toBeDisabled()
+  await page.getByRole('combobox', { name: 'Restore decision for Second notebook', exact: true }).selectOption('keep-local')
+  await confirmRestore(page)
+  await expect(page.getByRole('button', { name: /^Open / })).toHaveCount(2)
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  await page.reload()
+  await input.setInputFiles({ name: 'original-again.opennotes', mimeType: 'application/json', buffer })
+  await expect(page.getByRole('dialog', { name: 'Restore backup' }).getByRole('combobox')).toHaveCount(0)
+  await confirmRestore(page)
+  await expect(page.getByRole('button', { name: /^Open / })).toHaveCount(2)
+  await page.getByRole('button', { name: 'Open Second notebook', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Paper template' })).toHaveValue('ruled')
+})
+
+test('restore success is not reported when the local database write fails', async ({ page }) => {
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  const backup = { ...emptyLibrary(), notebooks: [notebookFixture('Unsaved restore')] }
+  await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'restore.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) })
+  await expect(page.getByRole('dialog', { name: 'Restore backup' })).toBeVisible()
+  await page.evaluate(() => {
+    IDBObjectStore.prototype.put = function () { throw new DOMException('Restore quota failure', 'QuotaExceededError') }
+  })
+  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Changes are not saved')
+  await expect(page.getByRole('status').filter({ hasText: 'Restore complete:' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Export backup', exact: true })).toBeVisible()
 })
 
 test('swiping the notebook name reveals deletion without opening the notebook', async ({ page }) => {

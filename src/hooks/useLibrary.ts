@@ -49,13 +49,16 @@ export function useLibrary() {
     if (!db) throw new Error('Local storage is not ready; editing is unavailable.')
     const version = ++revision.current
     setStatus('saving')
-    void db.save(value).then(() => {
-      if (revision.current !== version) return
-      setError('')
-      setStatus('saved')
+    return db.save(value).then(() => {
+      if (revision.current === version) {
+        setError('')
+        setStatus('saved')
+      }
+      return true
     }).catch((cause: unknown) => {
       setStatus('error')
       setError(`Changes are not saved. ${cause instanceof Error ? cause.message : 'Local storage failed.'} Export a backup now, then retry.`)
+      return false
     })
   }, [])
 
@@ -64,7 +67,7 @@ export function useLibrary() {
     const next = change(current.current)
     current.current = next
     setLibrary(next)
-    save(next)
+    return save(next)
   }, [save])
 
   const retry = useCallback(() => {
