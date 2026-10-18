@@ -26,13 +26,13 @@ No account, subscription, or cloud service required.
 ## Features
 
 - **Write naturally** — pressure-sensitive ink, a translucent highlighter,
-  whole-stroke erasing, and undo/redo.
+  an adjustable circular eraser that removes only the touched ink, and undo/redo.
 - **Make it yours** — named notebooks, colorful covers, multiple pages, and
   dotted, ruled, or plain paper.
 - **Bring your documents** — import PDFs, annotate their pages, and export
   your work as a PDF.
-- **Move around freely** — pan, zoom, fit a page to the screen, and switch
-  to Pencil-only drawing when you want fingers to navigate.
+- **Move around freely** — pan, zoom, fit a page to the screen, and navigate
+  with two fingers while automatic palm protection keeps touch out of your ink.
 - **Keep ownership** — local autosave, editable `.opennotes` backups, and
   restore/import without overwriting existing notebooks.
 - **Work offline** — application assets and PDF resources are cached locally.
@@ -157,13 +157,22 @@ validation. Browser emulation does not establish hardware compatibility.
 | --- | --- |
 | Pen | `P` |
 | Highlighter | `H` |
-| Stroke eraser | `E` |
+| Eraser | `E` |
 | Pan | `V` |
 | Undo | `Ctrl` / `Cmd` + `Z` |
 | Redo | `Ctrl` / `Cmd` + `Shift` + `Z` |
 
-Two fingers pan and zoom. Enable **Pencil only** to use fingers for navigation
-instead of drawing.
+Palm protection is automatic on iPad and turns on when a pen is first detected;
+there is no Pencil-only checkbox to configure.
+One touch does not draw or pan in this mode; use two fingers to navigate
+or explicitly select the Pan tool for one-finger navigation. Touches during pen
+contact and for 700 ms afterward are ignored, reducing palm interference.
+This is an app-level input policy, not native hardware palm classification.
+
+The eraser previews changes as you move and cuts only the portion of ink under
+its circular tip, including highlights. Adjust **Eraser size** in the toolbar.
+An eraser gesture is one undo action. Page templates and PDF backgrounds are
+not erased.
 
 ## Current scope
 

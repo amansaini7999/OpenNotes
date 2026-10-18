@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { drawStroke, loadImage, paintPage } from '../render'
-import { eraseStrokes, type NotePage, type Point, type Stroke, type Tool } from '../model'
+import { type NotePage, type Point, type Stroke, type Tool } from '../model'
+import { eraseInk } from '../eraser'
+import { suppressTouch } from '../input'
 
 type View = { x: number; y: number; scale: number }
 type Position = { x: number; y: number }
@@ -10,27 +12,32 @@ interface Props {
   tool: Tool
   color: string
   width: number
+  eraserRadius: number
   penOnly: boolean
   fitToken: number
   zoomCommand: { factor: number; serial: number }
   onChange: (strokes: Stroke[]) => void
   onZoom: (percent: number) => void
   onError: (message: string) => void
+  onPenDetected: () => void
 }
 
-export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCommand, onChange, onZoom, onError }: Props) {
+export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
   const [background, setBackground] = useState<{ source: string; image: HTMLImageElement } | null>(null)
   const strokesRef = useRef(page.strokes)
   const renderedPoints = useRef(0)
+  const lastPenAt = useRef(-Infinity)
+  const detectedPen = useRef(false)
+  const eraserPosition = useRef<Point | null>(null)
   const viewRef = useRef<View>({ x: 0, y: 0, scale: 1 })
   const [view, setView] = useState(viewRef.current)
   const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean } | null>(null)
   const touches = useRef(new Map<number, Position>())
   const gesture = useRef<Gesture | null>(null)
-  const pan = useRef<{ id: number; start: Position; view: View } | null>(null)
+  const pan = useRef<{ id: number; type: string; start: Position; view: View } | null>(null)
   const frame = useRef(0)
   const onZoomRef = useRef(onZoom)
   onZoomRef.current = onZoom
@@ -71,11 +78,16 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
     ctx.clearRect(0, 0, page.width, page.height)
     if (stroke && !stroke.eraser) drawStroke(ctx, stroke.stroke)
     if (stroke?.eraser && stroke.stroke.points.length) {
-      const point = stroke.stroke.points.at(-1)!
+      paintCommitted(eraseInk(strokesRef.current, stroke.stroke.points, eraserRadius))
+    }
+    const point = stroke?.eraser ? stroke.stroke.points.at(-1) : tool === 'eraser' ? eraserPosition.current : null
+    if (point) {
       ctx.strokeStyle = '#ba6066'
       ctx.lineWidth = 1.5
+      ctx.fillStyle = '#ffffff80'
       ctx.beginPath()
-      ctx.arc(point.x, point.y, width * 3 + 5, 0, Math.PI * 2)
+      ctx.arc(point.x, point.y, eraserRadius, 0, Math.PI * 2)
+      ctx.fill()
       ctx.stroke()
     }
   }
@@ -145,6 +157,17 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
   }, [page, background, onError])
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
+  useLayoutEffect(() => {
+    if (!active.current) {
+      eraserPosition.current = null
+      clearLive()
+    }
+  }, [tool])
+
+  function paintCommitted(strokes: Stroke[]) {
+    const ctx = committed.current?.getContext('2d')
+    if (ctx) paintPage(ctx, { ...page, strokes }, background?.source === page.background ? background?.image : undefined)
+  }
 
   const localPosition = (event: { clientX: number; clientY: number }): Position => {
     const rect = viewport.current!.getBoundingClientRect()
@@ -161,6 +184,13 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
     }
   }
 
+  const dismissTouches = () => {
+    touches.current.clear()
+    gesture.current = null
+    if (pan.current?.type === 'touch') pan.current = null
+    if (active.current?.type === 'touch') { active.current = null; clearLive() }
+  }
+
   const startGesture = () => {
     const [a, b] = [...touches.current.values()]
     gesture.current = {
@@ -174,11 +204,12 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (active.current?.type === 'pen' && event.pointerType !== 'pen')) return
+    if (event.pointerType === 'touch' && suppressTouch(active.current?.type === 'pen', lastPenAt.current, performance.now())) return
     if (event.cancelable) event.preventDefault()
     if (event.pointerType === 'pen') {
-      if (active.current?.type === 'touch') { active.current = null; clearLive() }
-      touches.current.clear()
-      gesture.current = null
+      lastPenAt.current = performance.now()
+      if (!detectedPen.current) { detectedPen.current = true; onPenDetected() }
+      dismissTouches()
       pan.current = null
     }
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -187,8 +218,9 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
       if (touches.current.size >= 2) { startGesture(); return }
     }
     if (active.current) return
-    if (tool === 'hand' || (penOnly && event.pointerType === 'touch')) {
-      pan.current = { id: event.pointerId, start: localPosition(event), view: { ...viewRef.current } }
+    if (event.pointerType === 'touch' && penOnly && tool !== 'hand') return
+    if (tool === 'hand') {
+      pan.current = { id: event.pointerId, type: event.pointerType, start: localPosition(event), view: { ...viewRef.current } }
       return
     }
     const raw = localPosition(event)
@@ -205,6 +237,14 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
   }
 
   const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'pen') {
+      lastPenAt.current = performance.now()
+      dismissTouches()
+    }
+    if (event.pointerType === 'touch' && suppressTouch(active.current?.type === 'pen', lastPenAt.current, performance.now())) {
+      dismissTouches()
+      return
+    }
     if (active.current?.type === 'pen' && event.pointerType !== 'pen') return
     if (touches.current.has(event.pointerId)) {
       touches.current.set(event.pointerId, localPosition(event))
@@ -225,7 +265,13 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
       moveView({ ...start.view, x: start.view.x + position.x - start.start.x, y: start.view.y + position.y - start.start.y })
       return
     }
-    if (active.current?.id !== event.pointerId) return
+    if (active.current?.id !== event.pointerId) {
+      if (!active.current && tool === 'eraser' && event.pointerType !== 'touch') {
+        eraserPosition.current = pointFrom(event.nativeEvent)
+        if (!frame.current) frame.current = requestAnimationFrame(drawLive)
+      }
+      return
+    }
     if (event.cancelable) event.preventDefault()
     const samples = event.nativeEvent.getCoalescedEvents?.() ?? []
     for (const sample of samples.length ? samples : [event.nativeEvent]) active.current.stroke.points.push(pointFrom(sample))
@@ -238,21 +284,25 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
     if (pan.current?.id === event.pointerId) pan.current = null
     const stroke = active.current
     if (stroke?.id !== event.pointerId) return
+    if (stroke.type === 'pen') lastPenAt.current = performance.now()
     cancelAnimationFrame(frame.current)
     frame.current = 0
     active.current = null
     clearLive()
     // Preserve sampled pen ink when Safari cancels input or capture is lost.
     // Cancellation coordinates are not reliable and must not create a spurious segment.
-    if (cancelled && (stroke.type !== 'pen' || stroke.eraser)) return
+    if (cancelled && (stroke.type !== 'pen' || stroke.eraser)) {
+      if (stroke.eraser) paintCommitted(strokesRef.current)
+      return
+    }
     if (!cancelled) {
       const point = pointFrom(event.nativeEvent)
       point.pressure = stroke.stroke.points.at(-1)!.pressure
       stroke.stroke.points.push(point)
     }
     const previous = strokesRef.current
-    const next = stroke.eraser ? eraseStrokes(previous, stroke.stroke.points, width * 3 + 5) : [...previous, stroke.stroke]
-    if (next.length !== previous.length || !stroke.eraser) {
+    const next = stroke.eraser ? eraseInk(previous, stroke.stroke.points, eraserRadius) : [...previous, stroke.stroke]
+    if (next !== previous) {
       strokesRef.current = next
       const ctx = committed.current?.getContext('2d')
       if (ctx && !stroke.eraser) drawStroke(ctx, stroke.stroke)
@@ -265,8 +315,18 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
     ref={viewport}
     data-testid="ink-viewport"
     aria-label="Writing surface. Use a pen or mouse to draw; two fingers to pan and zoom."
+    onPointerEnter={event => {
+      if (event.pointerType === 'pen') {
+        lastPenAt.current = performance.now()
+        dismissTouches()
+      }
+    }}
     onPointerDown={pointerDown}
     onPointerMove={pointerMove}
+    onPointerLeave={() => {
+      eraserPosition.current = null
+      if (!active.current) clearLive()
+    }}
     onPointerUp={event => finishPointer(event, false)}
     onPointerCancel={event => finishPointer(event, true)}
     onLostPointerCapture={event => finishPointer(event, true)}

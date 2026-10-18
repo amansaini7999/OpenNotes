@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, Download, Eraser, FileDown, Hand, Highlighter, Maximize, Minus, PenLine, Plus, Redo2, Trash2, Undo2 } from 'lucide-react'
 import { colors, createPage, type Notebook, type Stroke, type Tool, type NotePage, type Template } from '../model'
 import { InkCanvas } from './InkCanvas'
+import { prefersPencilOnly } from '../input'
 
 interface Props {
   notebook: Notebook
@@ -16,7 +17,7 @@ type History = { undo: Stroke[][]; redo: Stroke[][] }
 const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[] = [
   { id: 'pen', name: 'Pen', icon: PenLine, shortcut: 'P' },
   { id: 'highlighter', name: 'Highlighter', icon: Highlighter, shortcut: 'H' },
-  { id: 'eraser', name: 'Stroke eraser', icon: Eraser, shortcut: 'E' },
+  { id: 'eraser', name: 'Eraser', icon: Eraser, shortcut: 'E' },
   { id: 'hand', name: 'Pan', icon: Hand, shortcut: 'V' },
 ]
 
@@ -25,7 +26,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
   const [tool, setTool] = useState<Tool>('pen')
   const [color, setColor] = useState(colors[0])
   const [width, setWidth] = useState(3)
-  const [penOnly, setPenOnly] = useState(false)
+  const [eraserRadius, setEraserRadius] = useState(18)
+  const [penOnly, setPenOnly] = useState(() => prefersPencilOnly(navigator.userAgent, navigator.platform, navigator.maxTouchPoints))
   const [zoom, setZoom] = useState(100)
   const [fitToken, setFitToken] = useState(0)
   const [zoomCommand, setZoomCommand] = useState({ factor: 1, serial: 0 })
@@ -106,13 +108,12 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
       <span className="toolbar-divider" />
       <div className="tool-group color-group" aria-label="Ink colors">{colors.map(value => <button key={value} className={`color-swatch ${value === color ? 'active' : ''}`} style={{ '--swatch': value } as React.CSSProperties} aria-label={`Ink color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} />)}</div>
       <span className="toolbar-divider" />
-      <label className="width-control"><span>Size</span><input aria-label="Stroke width" type="range" min="1" max="8" step="0.5" value={width} onChange={e => setWidth(Number(e.target.value))} /><span className="width-dot" style={{ width: width + 3, height: width + 3 }} /></label>
+      <label className="width-control"><span>{tool === 'eraser' ? 'Eraser size' : 'Size'}</span><input aria-label={tool === 'eraser' ? 'Eraser size' : 'Stroke width'} type="range" min={tool === 'eraser' ? 4 : 1} max={tool === 'eraser' ? 40 : 8} step={tool === 'eraser' ? 2 : 0.5} value={tool === 'eraser' ? eraserRadius : width} onChange={e => tool === 'eraser' ? setEraserRadius(Number(e.target.value)) : setWidth(Number(e.target.value))} /><span className="width-dot" style={{ width: tool === 'eraser' ? 10 : width + 3, height: tool === 'eraser' ? 10 : width + 3 }} /></label>
       <span className="toolbar-divider" />
       <div className="tool-group">
         <button className="tool-button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!history.undo.length} onClick={undo}><Undo2 size={20} /></button>
         <button className="tool-button" aria-label="Redo" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!history.redo.length} onClick={redo}><Redo2 size={20} /></button>
       </div>
-      <label className="pencil-toggle"><input type="checkbox" checked={penOnly} onChange={e => setPenOnly(e.target.checked)} /><span>Pencil only</span></label>
     </div>
     <div className="editor-body">
       <aside className="pages-panel" aria-label="Notebook pages">
@@ -125,7 +126,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
         <button className="add-page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={16} /> New page</button>
       </aside>
       <div className="canvas-workspace">
-        <InkCanvas key={page.id} page={page} tool={tool} color={color} width={width} penOnly={penOnly} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} />
+        <InkCanvas key={page.id} page={page} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} />
         <div className="canvas-bottom">
           <label className="template-picker"><select aria-label="Paper template" disabled={Boolean(page.background)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select><ChevronDown size={14} /></label>
           <span className="page-indicator">Page {pageIndex + 1} of {notebook.pages.length}</span>

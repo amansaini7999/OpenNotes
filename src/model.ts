@@ -111,30 +111,6 @@ export function distanceToSegment(point: Point, start: Point, end: Point): numbe
   return Math.hypot(point.x - start.x - t * dx, point.y - start.y - t * dy)
 }
 
-export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
-  const cross = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
-  const abC = cross(a, b, c), abD = cross(a, b, d), cdA = cross(c, d, a), cdB = cross(c, d, b)
-  return abC * abD < 0 && cdA * cdB < 0
-}
-
-export function eraseStrokes(strokes: Stroke[], trail: Point[], radius: number): Stroke[] {
-  return strokes.filter(stroke => {
-    const points = stroke.points
-    const threshold = radius + stroke.width * (stroke.tool === 'highlighter' ? 5 : 1.25) / 2
-    for (let i = 0; i < points.length; i++) {
-      const a = points[i], b = points[Math.min(i + 1, points.length - 1)]
-      for (let j = 0; j < trail.length; j++) {
-        const c = trail[j], d = trail[Math.min(j + 1, trail.length - 1)]
-        if (segmentsIntersect(a, b, c, d) || Math.min(
-          distanceToSegment(a, c, d), distanceToSegment(b, c, d),
-          distanceToSegment(c, a, b), distanceToSegment(d, a, b),
-        ) <= threshold) return false
-      }
-    }
-    return true
-  })
-}
-
 export function pressureWidth(width: number, pressure: number): number {
   return width * (0.35 + Math.max(0, Math.min(1, pressure)) * 0.9)
 }
