@@ -20,7 +20,7 @@ export function InstallApp({ offlineReady }: { offlineReady: boolean }) {
   }, [])
   if (installed) return null
   return <>
-    <button className="install-button" onClick={() => setOpen(true)}><Download size={15} /> Install app</button>
+    <button className="install-button" onClick={() => setOpen(true)}><Download size={15} /> Installation instructions</button>
     {open && <Dialog title="Install OpenNotes" onClose={() => setOpen(false)}>
       <div className="help-content">
         <p>Keep OpenNotes on your Home Screen and use it offline. On iPad, installation is done through the browser, not a downloaded file.</p>
@@ -33,7 +33,7 @@ export function InstallApp({ offlineReady }: { offlineReady: boolean }) {
         </ol>
         <h3>On desktop Chrome</h3>
         <p>Use the install icon in the address bar, or Chrome's menu → Cast, save, and share → Install page as app. Menu wording can vary by version.</p>
-        <p role="status" className="install-readiness">{offlineReady ? 'Ready for offline use on this browser.' : 'Keep this page open while offline resources are prepared. Check Help & install for readiness before disconnecting.'}</p>
+        <p role="status" className="install-readiness">{offlineReady ? 'Ready for offline use on this browser.' : 'Keep this page open while offline resources are prepared. Check Help for readiness before disconnecting.'}</p>
         <p>After installing, open the app online once and confirm offline readiness there too. Export backups regularly; browser and installed-app storage can differ.</p>
       </div>
     </Dialog>}

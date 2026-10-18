@@ -1,12 +1,15 @@
 import { expect, test, type Page } from '@playwright/test'
 import { PDFDocument } from 'pdf-lib'
 
-async function createNotebook(page: Page, title = 'Field notes') {
+async function createNotebook(page: Page, title = 'Field notes', keepDefaults = false) {
   await page.getByRole('button', { name: 'Create a notebook', exact: true }).click()
   await page.getByRole('textbox', { name: 'Notebook name' }).fill(title)
   await page.getByRole('button', { name: 'Create notebook', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue(title)
   await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  if (!keepDefaults && await page.getByRole('button', { name: 'Hide pages', exact: true }).count()) {
+    await page.getByRole('button', { name: 'Hide pages', exact: true }).click()
+  }
 }
 
 async function draw(page: Page) {
@@ -67,8 +70,14 @@ async function strokeCount(page: Page): Promise<number> {
 
 test.beforeEach(async ({ page }) => { await page.goto('./') })
 
-test('installation is discoverable and explains iPad Home Screen installation', async ({ page }) => {
-  await page.getByRole('button', { name: 'Install app', exact: true }).click()
+test('installation is secondary to concise Help rather than a persistent app action', async ({ page }) => {
+  await expect(page.getByRole('button', { name: 'Install app', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Installation instructions', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  const help = page.getByRole('dialog', { name: 'Help', exact: true })
+  await expect(help).toContainText('Clearing site data')
+  await expect(help.locator('h3')).toHaveCount(0)
+  await help.getByRole('button', { name: 'Installation instructions', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Install OpenNotes' })
   await expect(dialog).toContainText('Safari')
   await expect(dialog).toContainText('Add to Home Screen')
@@ -94,17 +103,24 @@ test('the app fills the visible viewport without document scrolling after height
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true)
 })
 
-test('notebook view prioritizes the page with on-demand panels and focus mode', async ({ page }) => {
+test('notebook defaults fit laptop pages and maximize tablet writing space', async ({ page, isMobile }) => {
   await page.setViewportSize({ width: 834, height: 1194 })
-  await createNotebook(page, 'Page first')
+  await createNotebook(page, 'Page first', true)
   await expect(page.locator('.sidebar')).toBeHidden()
-  await expect(page.getByRole('complementary', { name: 'Notebook pages' })).toHaveCount(0)
   const viewport = await page.getByTestId('ink-viewport').boundingBox()
   const paper = await page.getByTestId('paper').boundingBox()
   if (!viewport || !paper) throw new Error('Writing workspace missing')
-  expect(viewport.width).toBeGreaterThanOrEqual(830)
   expect(viewport.height).toBeGreaterThan(1194 * 0.85)
-  expect(paper.width).toBeGreaterThan(834 * 0.94)
+  if (isMobile) {
+    await expect(page.getByRole('complementary', { name: 'Notebook pages' })).toHaveCount(0)
+    expect(viewport.width).toBeGreaterThanOrEqual(830)
+    expect(paper.width).toBeGreaterThan(834 * 0.94)
+  } else {
+    await expect(page.getByRole('complementary', { name: 'Notebook pages' })).toBeVisible()
+    expect(paper.height).toBeLessThan(viewport.height)
+    expect(paper.width).toBeLessThan(viewport.width)
+    await page.getByRole('button', { name: 'Close pages', exact: true }).click()
+  }
   await page.getByRole('button', { name: 'Show pages', exact: true }).click()
   await expect(page.getByRole('complementary', { name: 'Notebook pages' })).toBeVisible()
   await page.getByRole('button', { name: 'Close pages', exact: true }).click()
@@ -224,7 +240,9 @@ test('creates, draws, undoes/redoes, changes pages, and persists after reload', 
   await expect.poll(() => strokeCount(page)).toBe(2)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Field notes')
-  await page.getByRole('button', { name: 'Show pages', exact: true }).click()
+  if (await page.getByRole('button', { name: 'Show pages', exact: true }).count()) {
+    await page.getByRole('button', { name: 'Show pages', exact: true }).click()
+  }
   await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toBeVisible()
   expect(await strokeCount(page)).toBe(2)
 })
@@ -503,6 +521,57 @@ test('iPad automatically ignores finger ink without exposing a Pencil-only toggl
   await page.touchscreen.tap(paper.x + paper.width * 0.4, paper.y + paper.height * 0.3)
   expect(await strokeCount(page)).toBe(0)
   await expect(page.getByRole('checkbox', { name: 'Pencil only' })).toHaveCount(0)
+})
+
+test('tablet single- and two-finger horizontal swipes turn pages, but pinches and zoomed pans do not', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'CDP touch injection is Chromium-only; actual iPad gestures need device testing.')
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { value: 'MacIntel' })
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 })
+  })
+  await page.reload()
+  await createNotebook(page, 'Swipe notebook')
+  for (let i = 0; i < 2; i++) {
+    await page.getByRole('button', { name: 'Insert pages', exact: true }).click()
+    await page.getByRole('button', { name: 'Add page', exact: true }).click()
+  }
+  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  const session = await context.newCDPSession(page)
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+  const bounds = await page.getByTestId('ink-viewport').boundingBox()
+  if (!bounds) throw new Error('Writing surface missing')
+  const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+  const swipe = async (fingers: number, dx: number, dy = 0) => {
+    const start = Array.from({ length: fingers }, (_, i) => ({ id: i + 1, x: center.x + (i ? 30 : 0), y: center.y }))
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: start })
+    for (let step = 1; step <= 5; step++) {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: start.map(p => ({ ...p, x: p.x + dx * step / 5, y: p.y + dy * step / 5 })) })
+    }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  }
+  const position = page.getByRole('button', { name: 'Show page overview', exact: true })
+  await swipe(1, -120)
+  await expect(position).toHaveText('Page 2 of 3')
+  await swipe(2, -120)
+  await expect(position).toHaveText('Page 3 of 3')
+  await swipe(1, -120)
+  await expect(position).toHaveText('Page 3 of 3')
+  await swipe(1, 120)
+  await expect(position).toHaveText('Page 2 of 3')
+  await swipe(1, -15)
+  await swipe(1, -120, 120)
+  await expect(position).toHaveText('Page 2 of 3')
+  await page.getByRole('button', { name: 'Fit width', exact: true }).click()
+  const initialWidth = (await page.getByTestId('paper').boundingBox())!.width
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 1, x: center.x - 30, y: center.y }, { id: 2, x: center.x + 30, y: center.y }] })
+  await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ id: 1, x: center.x - 60, y: center.y }, { id: 2, x: center.x + 60, y: center.y }] })
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect.poll(async () => (await page.getByTestId('paper').boundingBox())!.width).toBeGreaterThan(initialWidth * 1.5)
+  await swipe(2, -120)
+  await expect(position).toHaveText('Page 2 of 3')
+  expect(await strokeCount(page)).toBe(0)
+  await session.detach()
 })
 
 test('palm-like touch cannot draw or pan before, during or just after a pen stroke', async ({ page, context, browserName }) => {
