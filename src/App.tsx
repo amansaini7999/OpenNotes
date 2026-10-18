@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowDownToLine, BookOpen, Check, CircleHelp, FileUp, HardDrive, Leaf, LoaderCircle, Plus, ShieldCheck, WifiOff, X } from 'lucide-react'
-import { coverColors, createNotebook, mergeBackup, readBackup, type Notebook, type Template } from './model'
+import { ArrowDownToLine, BookOpen, Check, CircleHelp, FileUp, HardDrive, Leaf, LoaderCircle, Plus, WifiOff, X } from 'lucide-react'
+import { coverColors, createNotebook, mergeBackup, readBackup, type Library, type Notebook, type Template } from './model'
 import { exportBackup, exportPdf, importPdf } from './files'
 import { useLibrary } from './hooks/useLibrary'
 import { usePwa } from './hooks/usePwa'
@@ -9,6 +9,7 @@ import { NotebookEditor } from './components/NotebookEditor'
 import { Dialog } from './components/Dialog'
 import { InstallApp } from './components/InstallApp'
 import { useViewportHeight } from './hooks/useViewportHeight'
+import { planBackupRestore, type RestorePlan } from './backup'
 
 type Modal = 'create' | 'help' | 'delete' | null
 
@@ -21,11 +22,14 @@ export default function App() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [restore, setRestore] = useState<{ plan: RestorePlan; imported: Library } | null>(null)
   const [name, setName] = useState('')
   const [cover, setCover] = useState(coverColors[0])
   const [template, setTemplate] = useState<Template>('dotted')
   const fileInput = useRef<HTMLInputElement>(null)
   const active = library?.notebooks.find(note => note.id === activeId)
+  const deleting = library?.notebooks.find(note => note.id === deletingId)
   const showError = useCallback((message: string) => setError(message), [])
 
   useEffect(() => {
@@ -63,8 +67,8 @@ export default function App() {
       } else {
         if (file.size > 100 * 1024 * 1024) throw new Error('Choose an OpenNotes backup smaller than 100 MB.')
         const imported = readBackup(await file.text())
-        update(value => mergeBackup(value, imported))
-        setNotice(`Imported ${imported.notebooks.length} ${imported.notebooks.length === 1 ? 'notebook' : 'notebooks'}. Existing notes were kept.`)
+        if (!library) throw new Error('The library is not ready. Wait for notebooks to load and retry.')
+        setRestore({ plan: await planBackupRestore(library, imported), imported })
       }
     })
   }
@@ -79,12 +83,16 @@ export default function App() {
     setActiveId(note.id)
   }
 
-  const requestPersistence = async () => {
-    await runTask('Checking storage protection…', async () => {
-      if (!navigator.storage?.persist) throw new Error('This browser cannot request persistent storage. Keep regular exported backups.')
-      const granted = await navigator.storage.persist()
-      setNotice(granted ? 'Persistent storage granted. Keep exported backups too—clearing browser data still deletes notes.' : 'Storage protection was not granted. Your notes remain local; export regular backups.')
-    })
+  const applyRestore = (copies: boolean) => {
+    if (!restore) return
+    try {
+      update(value => {
+        if (value !== restore.plan.base) throw new Error('Notebooks changed while this backup was being reviewed. Close this dialog and import it again.')
+        return copies ? mergeBackup(value, restore.imported) : restore.plan.library
+      })
+      setNotice(copies ? 'Imported separate copies as requested.' : `Restore complete: ${restore.plan.added} added, ${restore.plan.updated} updated, ${restore.plan.unchanged} unchanged, ${restore.plan.keptNewer} newer local copies kept, ${restore.plan.conflicts} conflicts preserved.`)
+      setRestore(null)
+    } catch (cause: unknown) { setError(cause instanceof Error ? cause.message : 'The backup could not be restored.') }
   }
 
   const saveIndicator = <span className={`save-state ${status === 'error' ? 'failed' : ''}`} role="status" data-testid="save-status">
@@ -104,7 +112,6 @@ export default function App() {
         <button className="nav-item" onClick={() => library && exportBackup(library)} disabled={!library}><ArrowDownToLine size={18} /> Back up everything</button>
       </nav>
       <div className="sidebar-bottom">
-        <div className="local-card"><span className="local-icon"><ShieldCheck size={21} /></span><strong>Just you and your ideas.</strong><p>No accounts. No subscriptions.<br />Your notebooks stay on this device.</p><button onClick={() => setModal('help')}>How local storage works <span>↗</span></button></div>
         <button className="sidebar-help" onClick={() => setModal('help')}><CircleHelp size={17} /> Help</button>
         <div className="sidebar-signature"><Leaf size={15} /><span>Made for a more open world.</span></div>
       </div>
@@ -118,8 +125,8 @@ export default function App() {
       {(storageError || error || pwa.registrationError) && <div className="message error" role="alert"><span>{storageError || error || pwa.registrationError}</span>{storageError ? <><button onClick={retry}>Retry save</button><button disabled={!library} onClick={() => library && exportBackup(library)}>Export backup</button></> : error ? <button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button> : <button onClick={() => setModal('help')}>Offline help</button>}</div>}
       {notice && <div className="message notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}
       {pwa.updateReady && <div className="message notice"><span>An update is ready. Finish writing and wait for “Saved on this device”, then close all OpenNotes tabs and reopen to update.</span></div>}
-      {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onBackup={() => exportBackup({ format: 'opennotes', version: 1, notebooks: [active] }, active.title)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onDelete={() => setModal('delete')} onError={showError} saveIndicator={saveIndicator} onHelp={() => setModal('help')} />
-        : <NotebookLibrary notebooks={library.notebooks} onOpen={setActiveId} onCreate={() => { setName(''); setModal('create') }} onImport={() => fileInput.current?.click()} />
+      {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onError={showError} saveIndicator={saveIndicator} />
+        : <NotebookLibrary notebooks={library.notebooks} onOpen={setActiveId} onCreate={() => { setName(''); setModal('create') }} onImport={() => fileInput.current?.click()} onDelete={id => { setDeletingId(id); setModal('delete') }} />
         : <div className="loading-state">{status === 'error' ? <><h1>Your notes need attention.</h1><p>We will not replace unreadable data with an empty library. Use the recovery message above.</p></> : <><LoaderCircle className="spin" size={30} /><p>Making room for your ideas…</p></>}</div>}
     </div>
     <input ref={fileInput} type="file" accept=".pdf,.opennotes,application/pdf,application/json" aria-label="Import PDF or OpenNotes backup" className="visually-hidden" onChange={event => {
@@ -138,11 +145,12 @@ export default function App() {
         <div className="dialog-actions"><button type="button" className="secondary" onClick={() => setModal(null)}>Cancel</button><button className="primary" type="submit" disabled={!name.trim() || !library}><Plus size={17} /> Create notebook</button></div>
       </form>
     </Dialog>}
-    {modal === 'delete' && active && <Dialog title="Delete this notebook?" onClose={() => setModal(null)}>
-      <p>“{active.title}” and its {active.pages.length} pages will be removed from this device. This cannot be undone. Download a backup first if you may need it.</p>
+    {modal === 'delete' && deleting && <Dialog title="Delete this notebook?" onClose={() => setModal(null)}>
+      <p>“{deleting.title}” and its {deleting.pages.length} pages will be removed from this device. This cannot be undone. Download a backup first if you may need it.</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => setModal(null)}>Keep notebook</button><button className="danger-button" onClick={() => {
-        update(value => ({ ...value, notebooks: value.notebooks.filter(note => note.id !== active.id) }))
-        setActiveId(null)
+        update(value => ({ ...value, notebooks: value.notebooks.filter(note => note.id !== deleting.id) }))
+        if (activeId === deleting.id) setActiveId(null)
+        setDeletingId(null)
         setModal(null)
       }}>Delete notebook</button></div>
     </Dialog>}
@@ -150,10 +158,26 @@ export default function App() {
       <div className="help-content">
         <p>{pwa.offlineReady ? 'Ready for offline use.' : 'Keep the app open online until offline setup completes.'}</p>
         <p>Notes are stored in this browser. Clearing site data or storage eviction can delete them. Export editable backups regularly; there is no automatic cloud sync.</p>
-        <button className="secondary" onClick={() => void requestPersistence()}><ShieldCheck size={17} /> Request storage protection</button>
         <p>On iPad, swipe left/right with one or two fingers to turn a fitted page. Pinch to zoom; use two fingers to pan when zoomed. Touch navigation pauses during pen input and briefly afterward.</p>
         <div className="document-actions"><InstallApp offlineReady={pwa.offlineReady} /></div>
         <p><a href="https://github.com/amansaini7999/OpenNotes/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noreferrer">User guide and keyboard shortcuts</a></p>
+      </div>
+    </Dialog>}
+        {restore && <Dialog title="Restore backup" onClose={() => setRestore(null)}>
+          <p>Stable notebook IDs and SHA-256 content checks prevent duplicate imports.</p>
+          <ul className="restore-summary">
+            <li>New notebooks: {restore.plan.added}</li>
+            <li>Updates from newer backups: {restore.plan.updated}</li>
+            <li>Already present: {restore.plan.unchanged}</li>
+            <li>Newer local notebooks kept: {restore.plan.keptNewer}</li>
+            <li>Conflicts preserved as separate copies: {restore.plan.conflicts}</li>
+          </ul>
+          {restore.plan.updated > 0 && <p>Restoring replaces local versions with the newer backup versions. Export a backup first if you need the current local versions.</p>}
+          <p>Existing duplicates are not deleted automatically. Import as copies only if you intentionally want duplicates.</p>
+          <div className="dialog-actions">
+            <button className="secondary" onClick={() => setRestore(null)}>Cancel</button>
+            <button className="secondary" disabled={!restore.imported.notebooks.length} onClick={() => applyRestore(true)}>Import as separate copies</button>
+            <button className="primary" onClick={() => applyRestore(false)}>Restore notebooks</button>
       </div>
     </Dialog>}
   </div>

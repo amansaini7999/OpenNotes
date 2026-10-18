@@ -43,6 +43,7 @@ const notebookSchema = z.object({
   updatedAt: z.number().finite().nonnegative(),
   pages: z.array(pageSchema).min(1).max(500),
   sources: z.array(sourceAssetSchema).default([]),
+  backupConflict: z.object({ originalId: z.string().uuid(), contentHash: z.string().regex(/^[0-9a-f]{64}$/) }).optional(),
 })
 export const backupSchema = z.object({
   format: z.literal('opennotes'),

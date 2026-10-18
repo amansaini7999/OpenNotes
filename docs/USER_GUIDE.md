@@ -26,7 +26,9 @@
 after the selected page. Existing pages and handwriting are preserved.
 Images and PDF pages become writable backgrounds.
 
-**Notebook options** contains paper style, PDF export, editable backup, and Help.
+Paper style is available in the bottom bar. **Export PDF** is in the notebook
+header. In the library, swipe a notebook's name to reveal Delete, or use the
+name row's actions button. Deletion always requires confirmation.
 
 Import limits:
 
@@ -58,9 +60,13 @@ mean a file was saved to Files, Google Drive, or another external folder.
 Strokes commit on release; sampled pen ink is retained on handled cancellation
 or lost capture. Process termination before handling input can still lose work.
 
-Use **Back up everything** from the library or **Editable backup** from notebook
-options to export `.opennotes` files. Import them to restore or transfer notes;
-existing notebooks are not overwritten.
+Use **Back up everything** from the library to export `.opennotes` files.
+Import shows a restore summary before applying changes. Stable notebook IDs and
+SHA-256 content checks skip identical notebooks, replace matching notebooks only
+when the backup is newer, and retain newer local copies. Equal-age divergent
+versions are preserved as labeled conflict copies rather than overwritten.
+Choose **Import as separate copies** only when duplicates are intentional.
+Duplicates created by older app versions are not deleted automatically.
 
 Clearing browser data, storage eviction, or changing the site's origin can
 remove access to notebooks. Export backups regularly. Only one tab can edit

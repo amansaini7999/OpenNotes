@@ -44,20 +44,15 @@ async function draw(page: Page) {
 }
 
 async function documentAction(page: Page, name: string) {
-  await page.getByRole('button', { name: 'Notebook options', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name, exact: true }).click()
+  await page.getByRole('button', { name, exact: true }).click()
 }
 
 async function setPaper(page: Page, template: string) {
-  await page.getByRole('button', { name: 'Notebook options', exact: true }).click()
   await page.getByRole('combobox', { name: 'Paper template' }).selectOption(template)
-  await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
 }
 
 async function expectImportedBackground(page: Page) {
-  await page.getByRole('button', { name: 'Notebook options', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Paper template' })).toBeDisabled()
-  await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
 }
 
 async function strokeCount(page: Page): Promise<number> {
@@ -85,6 +80,7 @@ test('installation is secondary to concise Help rather than a persistent app act
   await page.getByRole('button', { name: 'Help', exact: true }).click()
   const help = page.getByRole('dialog', { name: 'Help', exact: true })
   await expect(help).toContainText('Clearing site data')
+  await expect(help.getByRole('button', { name: 'Request storage protection' })).toHaveCount(0)
   await expect(help.locator('h3')).toHaveCount(0)
   await help.getByRole('button', { name: 'Installation instructions', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Install OpenNotes' })
@@ -197,9 +193,7 @@ test('inserts image and ordered PDF pages after the current page, preserving exi
   dimensions = await page.getByTestId('paper').evaluate(element => ({ width: element.clientWidth, height: element.clientHeight }))
   expect(dimensions.width).toBeGreaterThan(dimensions.height)
   await page.getByRole('button', { name: 'Next page', exact: true }).click()
-  await page.getByRole('button', { name: 'Notebook options', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Paper template' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
   await page.evaluate(() => navigator.serviceWorker.ready)
   await context.setOffline(true)
   await page.reload()
@@ -379,8 +373,9 @@ test('exports a valid PDF and an editable backup and restores the backup', async
   const parsed = await PDFDocument.load(Buffer.concat(pdfChunks))
   expect(parsed.getPageCount()).toBe(1)
 
+  await page.getByRole('button', { name: 'Back to notebooks' }).click()
   const backupDownload = page.waitForEvent('download')
-  await documentAction(page, 'Download notebook backup')
+  await page.getByRole('button', { name: 'Back up everything', exact: true }).click()
   const backup = await backupDownload
   const stream = await backup.createReadStream()
   if (!stream) throw new Error('Backup stream missing')
@@ -388,8 +383,12 @@ test('exports a valid PDF and an editable backup and restores the backup', async
   for await (const chunk of stream) chunks.push(Buffer.from(chunk))
   const buffer = Buffer.concat(chunks)
   expect(JSON.parse(buffer.toString()).notebooks[0].pages[0].strokes).toHaveLength(1)
-  await page.getByRole('button', { name: 'Back to notebooks' }).click()
   await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'restored.opennotes', mimeType: 'application/json', buffer })
+  await expect(page.getByRole('dialog', { name: 'Restore backup' })).toContainText('Already present: 1')
+  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open Backup test', exact: true })).toHaveCount(1)
+  await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'copies.opennotes', mimeType: 'application/json', buffer })
+  await page.getByRole('button', { name: 'Import as separate copies', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Open Backup test', exact: true })).toHaveCount(2)
 })
 
@@ -405,6 +404,44 @@ test('imports a PDF and retains its page background after reload', async ({ page
   await page.reload()
   await expectImportedBackground(page)
   expect(await strokeCount(page)).toBe(1)
+})
+
+test('backup restore updates a matching notebook and does not replace newer local content', async ({ page }) => {
+  await createNotebook(page, 'Before restore')
+  await page.getByRole('button', { name: 'Back to notebooks' }).click()
+  const saved = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Back up everything', exact: true }).click()
+  const original = JSON.parse((await downloadBytes(await saved)).toString())
+  const newer = structuredClone(original)
+  newer.notebooks[0].title = 'Updated from backup'
+  newer.notebooks[0].updatedAt += 1000
+  const input = page.getByLabel('Import PDF or OpenNotes backup')
+  await input.setInputFiles({ name: 'newer.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(newer)) })
+  await expect(page.getByRole('dialog', { name: 'Restore backup' })).toContainText('Updates from newer backups: 1')
+  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open Updated from backup', exact: true })).toHaveCount(1)
+  await input.setInputFiles({ name: 'older.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(original)) })
+  await expect(page.getByRole('dialog', { name: 'Restore backup' })).toContainText('Newer local notebooks kept: 1')
+  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open Before restore', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Open Updated from backup', exact: true })).toHaveCount(1)
+})
+
+test('swiping the notebook name reveals deletion without opening the notebook', async ({ page }) => {
+  await createNotebook(page, 'Swipe deletion')
+  await page.getByRole('button', { name: 'Back to notebooks' }).click()
+  const row = page.getByLabel('Notebook name Swipe deletion', { exact: true })
+  await row.scrollIntoViewIfNeeded()
+  const bounds = await row.boundingBox()
+  if (!bounds) throw new Error('Notebook name row missing')
+  await page.mouse.move(bounds.x + bounds.width * 0.85, bounds.y + bounds.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(bounds.x + bounds.width * 0.15, bounds.y + bounds.height / 2, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.getByRole('button', { name: 'Delete Swipe deletion', exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Delete Swipe deletion', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Delete this notebook?' })).toBeVisible()
 })
 
 test('PDF import and export work on a fresh offline session, without external requests', async ({ page, context }) => {
@@ -674,10 +711,12 @@ test('prevents concurrent editors from overwriting the same local library', asyn
 
 test('delete requires confirmation and leaves the library empty', async ({ page }) => {
   await createNotebook(page, 'Temporary')
-  await documentAction(page, 'Delete notebook')
+  await page.getByRole('button', { name: 'Back to notebooks', exact: true }).click()
+  await page.getByRole('button', { name: 'Notebook actions for Temporary', exact: true }).click()
+  await page.getByRole('button', { name: 'Delete Temporary', exact: true }).click()
   await page.getByRole('button', { name: 'Keep notebook', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Temporary')
-  await documentAction(page, 'Delete notebook')
+  await expect(page.getByRole('button', { name: 'Open Temporary', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Delete Temporary', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete notebook', exact: true }).click()
   await expect(page.getByRole('heading', { name: /Your notebooks/ })).toBeVisible()
   await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
