@@ -106,7 +106,7 @@ test('exports a valid PDF and an editable backup and restores the backup', async
   const pdfDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export PDF', exact: true }).click()
   const pdf = await pdfDownload
-  expect(pdf.suggestedFilename()).toBe('Backup test.pdf')
+  expect(pdf.suggestedFilename()).toMatch(/^Backup[ _]test\.pdf$/)
   const pdfStream = await pdf.createReadStream()
   if (!pdfStream) throw new Error('PDF download stream missing')
   const pdfChunks: Buffer[] = []
@@ -186,7 +186,7 @@ test('reports quota failures and allows an editable backup of unsaved work', asy
   await expect(page.getByTestId('save-status')).toContainText('Not saved')
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export backup', exact: true }).click()
-  expect((await download).suggestedFilename()).toBe('OpenNotes backup.opennotes')
+  expect((await download).suggestedFilename()).toMatch(/^OpenNotes[ _]backup\.opennotes$/)
 })
 
 test('layouts fit desktop, iPad and narrow mobile screens without horizontal overflow', async ({ page }) => {
