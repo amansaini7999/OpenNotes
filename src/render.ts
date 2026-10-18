@@ -35,7 +35,7 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.restore()
 }
 
-export function paintPage(ctx: CanvasRenderingContext2D, page: NotePage, image?: CanvasImageSource) {
+export function paintPage(ctx: CanvasRenderingContext2D, page: NotePage, image?: CanvasImageSource, inlineImages: ReadonlyMap<string, CanvasImageSource> = new Map()) {
   ctx.clearRect(0, 0, page.width, page.height)
   ctx.fillStyle = '#fffefb'
   ctx.fillRect(0, 0, page.width, page.height)
@@ -58,6 +58,10 @@ export function paintPage(ctx: CanvasRenderingContext2D, page: NotePage, image?:
       ctx.lineTo(page.width - 30, y)
       ctx.stroke()
     }
+  }
+  for (const placed of page.images) {
+    const image = inlineImages.get(placed.assetId)
+    if (image) ctx.drawImage(image, placed.x, placed.y, placed.width, placed.height)
   }
   for (const stroke of page.strokes) drawStroke(ctx, stroke)
 }

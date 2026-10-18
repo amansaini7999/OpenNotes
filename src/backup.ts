@@ -27,6 +27,7 @@ export async function notebookHash(note: Notebook): Promise<string> {
       background: page.source ? undefined : page.background,
       source: page.source ? { asset: assets.get(page.source.assetId), pageIndex: page.source.pageIndex } : undefined,
       strokes: page.strokes.map(({ id: _id, ...stroke }) => stroke),
+      images: page.images.map(({ id: _id, assetId, ...image }) => ({ ...image, asset: assets.get(assetId) })),
     })),
   }))
 }

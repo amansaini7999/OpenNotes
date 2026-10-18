@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, Undo2, X } from 'lucide-react'
-import { colors, createPage, insertPagesAfter, type Notebook, type Stroke, type Tool, type NotePage, type Template } from '../model'
+import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, Undo2, X } from 'lucide-react'
+import { colors, createPage, insertPagesAfter, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset } from '../model'
 import { InkCanvas } from './InkCanvas'
 import { prefersPencilOnly } from '../input'
 import { importPageFiles } from '../files'
 import { Dialog } from './Dialog'
 import { usesTabletLayout, type PageTurn } from '../navigation'
+import { placeImage, moveImage } from '../images'
+import { loadImage } from '../render'
 
 interface Props {
   notebook: Notebook
@@ -15,12 +17,14 @@ interface Props {
   onError: (message: string) => void
   saveIndicator: ReactNode
 }
-type History = { undo: Stroke[][]; redo: Stroke[][] }
+type Snapshot = Pick<NotePage, 'strokes' | 'images'>
+type History = { undo: Snapshot[]; redo: Snapshot[] }
 const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[] = [
   { id: 'pen', name: 'Pen', icon: PenLine, shortcut: 'P' },
   { id: 'highlighter', name: 'Highlighter', icon: Highlighter, shortcut: 'H' },
   { id: 'eraser', name: 'Eraser', icon: Eraser, shortcut: 'E' },
   { id: 'hand', name: 'Pan', icon: Hand, shortcut: 'V' },
+  { id: 'image', name: 'Select images', icon: MousePointer2, shortcut: 'I' },
 ]
 
 export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, saveIndicator }: Props) {
@@ -40,6 +44,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const [panel, setPanel] = useState<'insert' | 'tools' | null>(null)
   const [importing, setImporting] = useState('')
   const importInput = useRef<HTMLInputElement>(null)
+  const inlineInput = useRef<HTMLInputElement>(null)
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
   const [zoomCommand, setZoomCommand] = useState({ factor: 1, serial: 0 })
   const [historyVersion, setHistoryVersion] = useState(0)
   const histories = useRef(new Map<string, History>())
@@ -51,25 +57,29 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     onUpdate(note => ({ ...note, updatedAt: Date.now(), pages: note.pages.map(value => value.id === id ? update(value) : value) }))
   }, [onUpdate])
 
-  const commitStrokes = (strokes: Stroke[]) => {
+  const remember = () => {
     const previous = histories.current.get(page.id) ?? { undo: [], redo: [] }
-    histories.current.set(page.id, { undo: [...previous.undo.slice(-49), page.strokes], redo: [] })
-    changePage(page.id, value => ({ ...value, strokes }))
+    histories.current.set(page.id, { undo: [...previous.undo.slice(-49), { strokes: page.strokes, images: page.images }], redo: [] })
     setHistoryVersion(value => value + 1)
+  }
+  const commitStrokes = (strokes: Stroke[]) => { remember(); changePage(page.id, value => ({ ...value, strokes })) }
+  const commitImages = (images: PlacedImage[], sources: SourceAsset[] = []) => {
+    remember()
+    onUpdate(note => ({ ...note, updatedAt: Date.now(), sources: [...note.sources, ...sources], pages: note.pages.map(value => value.id === page.id ? { ...value, images } : value) }))
   }
 
   const undo = () => {
     if (!history.undo.length) return
     const previous = history.undo.at(-1)!
-    histories.current.set(page.id, { undo: history.undo.slice(0, -1), redo: [...history.redo, page.strokes] })
-    changePage(page.id, value => ({ ...value, strokes: previous }))
+    histories.current.set(page.id, { undo: history.undo.slice(0, -1), redo: [...history.redo, { strokes: page.strokes, images: page.images }] })
+    changePage(page.id, value => ({ ...value, ...previous }))
     setHistoryVersion(value => value + 1)
   }
   const redo = () => {
     if (!history.redo.length) return
     const next = history.redo.at(-1)!
-    histories.current.set(page.id, { undo: [...history.undo, page.strokes], redo: history.redo.slice(0, -1) })
-    changePage(page.id, value => ({ ...value, strokes: next }))
+    histories.current.set(page.id, { undo: [...history.undo, { strokes: page.strokes, images: page.images }], redo: history.redo.slice(0, -1) })
+    changePage(page.id, value => ({ ...value, ...next }))
     setHistoryVersion(value => value + 1)
   }
   const actions = useRef({ undo, redo })
@@ -109,6 +119,57 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     } catch (cause: unknown) {
       onError(cause instanceof Error ? cause.message : 'Pages could not be imported. No pages were added.')
     } finally { setImporting('') }
+  }
+  async function insertInlineImages(files: File[]) {
+    if (importing) { onError('Wait for the current import to finish before pasting another image.'); return }
+    setPanel(null)
+    setImporting('Adding image to this page…')
+    try {
+      if (files.some(file => /\.pdf$/i.test(file.name))) throw new Error('Choose images for inline insertion. PDFs can be inserted as pages.')
+      const imported = await importPageFiles(files, Math.min(50, 100 - page.images.length), setImporting)
+      const placed = await Promise.all(imported.sources.map(async (asset, index) => {
+        const image = await loadImage(`data:${asset.mime};base64,${asset.data}`)
+        const placed = placeImage(page, asset.id, image.naturalWidth, image.naturalHeight)
+        return moveImage(placed, placed.x + index * 20, placed.y + index * 20, page)
+      }))
+      commitImages([...page.images, ...placed], imported.sources)
+      setSelectedImageId(placed.at(-1)!.id)
+      setTool('image')
+    } catch (cause: unknown) { onError(cause instanceof Error ? cause.message : 'The image could not be inserted.') }
+    finally { setImporting('') }
+  }
+  const inlineImporter = useRef(insertInlineImages)
+  inlineImporter.current = insertInlineImages
+  useEffect(() => {
+    const paste = (event: ClipboardEvent) => {
+      if (event.target instanceof HTMLElement && (event.target.closest('input,textarea,[contenteditable="true"]') || document.querySelector('dialog[open]'))) return
+      const files = Array.from(event.clipboardData?.files ?? []).filter(file => file.type.startsWith('image/')).map(file => {
+        if (/\.(png|jpe?g|webp)$/i.test(file.name)) return file
+        const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png'
+        return new File([file], `pasted-image.${extension}`, { type: file.type })
+      })
+      if (!files.length) return
+      event.preventDefault()
+      void inlineImporter.current(files)
+    }
+    window.addEventListener('paste', paste)
+    return () => window.removeEventListener('paste', paste)
+  }, [])
+  const pasteImage = async () => {
+    try {
+      if (!navigator.clipboard?.read) throw new Error('Clipboard image access is unavailable here. Use Image on this page to choose a screenshot.')
+      const items = await navigator.clipboard.read()
+      const files: File[] = []
+      for (const item of items) {
+        const type = item.types.find(type => ['image/png', 'image/jpeg', 'image/webp'].includes(type))
+        if (type) files.push(new File([await item.getType(type)], `pasted-image.${type === 'image/jpeg' ? 'jpg' : type.split('/')[1]}`, { type }))
+      }
+      if (!files.length) throw new Error('The clipboard does not contain a supported image. Copy a screenshot or use Image on this page.')
+      await inlineImporter.current(files)
+    } catch (cause: unknown) {
+      setPanel(null)
+      onError(`Paste failed: ${cause instanceof Error ? cause.message : 'Clipboard access was denied.'} You can choose Image on this page instead.`)
+    }
   }
   const fit = (mode: 'width' | 'page') => {
     setFitMode(mode)
@@ -153,13 +214,13 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
         <div className="pages-heading"><span>PAGES</span><button className="icon-button" aria-label="Close pages" onClick={() => setPagesOpen(false)}><X size={17} /></button></div>
         <div className="page-list">
           {notebook.pages.map((value, index) => <button className={`page-tile ${page.id === value.id ? 'active' : ''}`} key={value.id} onClick={() => setPageId(value.id)} aria-label={`Page ${index + 1}`} aria-current={page.id === value.id ? 'page' : undefined}>
-            <PagePreview page={value} /><span>{String(index + 1).padStart(2, '0')}</span>
+            <PagePreview page={value} sources={notebook.sources} /><span>{String(index + 1).padStart(2, '0')}</span>
           </button>)}
         </div>
         <button className="add-page" onClick={() => setPanel('insert')} disabled={notebook.pages.length >= 500}><Plus size={16} /> Insert pages</button>
       </aside>}
       <div className="canvas-workspace">
-        <InkCanvas key={page.id} page={page} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={tabletLayout} pageTurn={tabletLayout ? pageTurn : null} onPageTurn={turnPage} />
+        <InkCanvas key={page.id} page={page} sources={notebook.sources} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={tabletLayout} pageTurn={tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={commitImages} />
         <div className="canvas-bottom">
           <div className="page-navigation">
             <button className="icon-button" aria-label="Previous page" disabled={pageIndex === 0} onClick={() => setPageId(notebook.pages[pageIndex - 1].id)}><ChevronLeft size={17} /></button>
@@ -182,10 +243,17 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       event.target.value = ''
       if (files.length) void insertFiles(files)
     }} />
-    {importing && <div className="busy-overlay" role="status"><div><LoaderCircle className="spin" size={25} /><strong>{importing}</strong><span>Adding pages after page {pageIndex + 1}. Keep this window open.</span></div></div>}
+    <input className="visually-hidden" ref={inlineInput} type="file" multiple accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" aria-label="Insert image on current page" onChange={event => {
+      const files = Array.from(event.target.files ?? [])
+      event.target.value = ''
+      if (files.length) void insertInlineImages(files)
+    }} />
+    {importing && <div className="busy-overlay" role="status"><div><LoaderCircle className="spin" size={25} /><strong>{importing}</strong><span>Keep this window open.</span></div></div>}
     {panel === 'insert' && <Dialog title="Insert pages" onClose={() => setPanel(null)}>
       <p>Add pages immediately after page {pageIndex + 1}. Existing pages and handwriting stay unchanged.</p>
       <div className="document-actions">
+        <button className="secondary" onClick={() => inlineInput.current?.click()} disabled={page.images.length >= 100}><ImagePlus size={19} /> Image on this page</button>
+        <button className="secondary" onClick={() => void pasteImage()} disabled={page.images.length >= 100}><ClipboardPaste size={19} /> Paste image</button>
         <button className="secondary" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={19} /> Blank page</button>
         <button className="secondary" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><ImagePlus size={19} /> Images as pages</button>
         <button className="secondary" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><FileUp size={19} /> PDF pages</button>
@@ -199,11 +267,15 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   </main>
 }
 
-function PagePreview({ page }: { page: NotePage }) {
+function PagePreview({ page, sources }: { page: NotePage; sources: SourceAsset[] }) {
   return <svg viewBox={`0 0 ${page.width} ${page.height}`} className={`page-preview ${page.template}`} aria-hidden="true">
     <rect width={page.width} height={page.height} fill="#fffefb" />
     {page.background && <image href={page.background} width={page.width} height={page.height} />}
     {!page.background && page.template === 'ruled' && Array.from({ length: 28 }, (_, i) => <line key={i} x1={30} x2={page.width - 30} y1={65 + i * 30} y2={65 + i * 30} stroke="#dce1dc" strokeWidth="2" />)}
+    {page.images.map(image => {
+      const asset = sources.find(value => value.id === image.assetId)
+      return asset && <image key={image.id} href={`data:${asset.mime};base64,${asset.data}`} x={image.x} y={image.y} width={image.width} height={image.height} />
+    })}
     {page.strokes.map(stroke => <polyline key={stroke.id} points={stroke.points.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={stroke.color} strokeWidth={stroke.tool === 'highlighter' ? stroke.width * 5 : stroke.width} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} strokeLinecap="round" strokeLinejoin="round" />)}
   </svg>
 }

@@ -101,6 +101,13 @@ export async function buildNotebookPdf(notebook: Notebook, progress: (message: s
       const image = page.background.startsWith('data:image/png;') ? await pdf.embedPng(page.background) : await pdf.embedJpg(page.background)
       output.drawImage(image, { x: rect.x, y: rect.y, width: rect.width, height: rect.height })
     } else drawTemplate(output, page, rect)
+    for (const placed of page.images) {
+      const asset = notebook.sources.find(value => value.id === placed.assetId)
+      if (!asset || asset.kind !== 'image') throw new Error('An inline image original is missing. Restore a backup before exporting.')
+      let image = images.get(asset.id)
+      if (!image) { image = await embedImage(pdf, asset); images.set(asset.id, image) }
+      output.drawImage(image, { x: rect.x + placed.x * rect.scale, y: rect.y + rect.height - (placed.y + placed.height) * rect.scale, width: placed.width * rect.scale, height: placed.height * rect.scale })
+    }
     drawInk(output, page, rect)
   }
   return pdf.save()

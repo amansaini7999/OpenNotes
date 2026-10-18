@@ -26,6 +26,18 @@
 after the selected page. Existing pages and handwriting are preserved.
 Images and PDF pages become writable backgrounds.
 
+For a small screenshot inside the current page, paste an image with Ctrl/Cmd+V
+outside text fields, or use **Insert pages → Paste image**. Clipboard access
+depends on browser permission and iPadOS support. **Image on this page** provides
+a file-picker alternative without adding another notebook page.
+
+Pasted/inline images switch to **Select images** (`I`). Drag an image to move it,
+drag its corner to resize proportionally, or use its size/remove controls.
+Arrow keys move a focused image; Delete removes it. Image insertion, movement,
+resizing and removal participate in page undo/redo. Original source images are
+included in backups and PDF exports. Ink stays above inline images.
+Up to 100 inline images are supported per page.
+
 Paper style is available in the bottom bar. **Export PDF** is in the notebook
 header. In the library, swipe a notebook's name to reveal Delete, or use the
 name row's actions button. Deletion always requires confirmation.
@@ -83,5 +95,6 @@ collaboration are not currently included.
 | Highlighter | `H` |
 | Eraser | `E` |
 | Pan | `V` |
+| Select images | `I` |
 | Undo | `Ctrl` / `Cmd` + `Z` |
 | Redo | `Ctrl` / `Cmd` + `Shift` + `Z` |

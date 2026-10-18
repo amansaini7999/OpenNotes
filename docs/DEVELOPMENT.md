@@ -34,6 +34,8 @@ separate from storage, file processing, and browser lifecycle effects.
 | [assets.ts](../src/assets.ts) | Original source bytes, MIME detection and JPEG orientation |
 | [pdf.ts](../src/pdf.ts) | Uniform-size, vector/source-preserving PDF export |
 | [navigation.ts](../src/navigation.ts) | Device defaults and page-turn recognition |
+| [images.ts](../src/images.ts) | Proportional inline-image placement and bounds |
+| [backup.ts](../src/backup.ts) | SHA-256 content identity and reviewed backup restore |
 | [hooks/](../src/hooks/) | Storage coordination, PWA and viewport lifecycle |
 | [components/](../src/components/) | Library, editor, writing surface, and dialogs |
 | [tests/](../tests/) | Browser workflows |

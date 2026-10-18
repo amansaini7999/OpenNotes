@@ -4,7 +4,7 @@ export const PAGE_WIDTH = 794
 export const PAGE_HEIGHT = 1123
 export const colors = ['#253a43', '#327769', '#517bcb', '#ba6066', '#d5a24c', '#8c6bb1']
 export const coverColors = ['#327769', '#4b668c', '#ad6863', '#b39464', '#807397', '#51655d']
-export type Tool = 'pen' | 'highlighter' | 'eraser' | 'hand'
+export type Tool = 'pen' | 'highlighter' | 'eraser' | 'hand' | 'image'
 
 const pointSchema = z.object({
   x: z.number().finite().min(-100).max(2100),
@@ -26,6 +26,14 @@ const sourceAssetSchema = z.object({
   data: z.string().min(4).max(45_000_000).regex(/^[A-Za-z0-9+/]+={0,2}$/),
   pageCount: z.number().int().min(1).max(50),
 }).refine(asset => asset.kind === 'pdf' ? asset.mime === 'application/pdf' : asset.mime !== 'application/pdf' && asset.pageCount === 1, 'Invalid source asset type.')
+const placedImageSchema = z.object({
+  id: z.string().uuid(),
+  assetId: z.string().uuid(),
+  x: z.number().finite().min(0).max(2000),
+  y: z.number().finite().min(0).max(3000),
+  width: z.number().finite().min(10).max(2000),
+  height: z.number().finite().min(10).max(3000),
+})
 const pageSchema = z.object({
   id: z.string().uuid(),
   template: z.enum(['dotted', 'ruled', 'plain']),
@@ -34,6 +42,7 @@ const pageSchema = z.object({
   background: backgroundSchema.optional(),
   source: z.object({ assetId: z.string().uuid(), pageIndex: z.number().int().min(0).max(49) }).optional(),
   strokes: z.array(strokeSchema),
+  images: z.array(placedImageSchema).max(100).default([]),
 })
 const notebookSchema = z.object({
   id: z.string().uuid(),
@@ -60,6 +69,13 @@ export const backupSchema = z.object({
       assets.add(asset.id)
     }
     for (const page of notebook.pages) {
+      const imageIds = new Set<string>()
+      for (const image of page.images) {
+        if (imageIds.has(image.id) || sources.get(image.assetId)?.kind !== 'image' || image.x + image.width > page.width + 0.01 || image.y + image.height > page.height + 0.01) {
+          context.addIssue({ code: 'custom', message: 'Invalid inline image reference or position.' })
+        }
+        imageIds.add(image.id)
+      }
       if (page.source) {
         const asset = sources.get(page.source.assetId)
         if (!asset || page.source.pageIndex >= asset.pageCount) context.addIssue({ code: 'custom', message: 'Invalid page source reference.' })
@@ -82,9 +98,10 @@ export type Library = z.infer<typeof backupSchema>
 export type Template = NotePage['template']
 export type SourceAsset = z.infer<typeof sourceAssetSchema>
 export type ImportedPages = { pages: NotePage[]; sources: SourceAsset[] }
+export type PlacedImage = z.infer<typeof placedImageSchema>
 
 export function createPage(template: Template = 'dotted'): NotePage {
-  return { id: crypto.randomUUID(), template, width: PAGE_WIDTH, height: PAGE_HEIGHT, strokes: [] }
+  return { id: crypto.randomUUID(), template, width: PAGE_WIDTH, height: PAGE_HEIGHT, strokes: [], images: [] }
 }
 
 export function createNotebook(title: string, color = coverColors[0], template: Template = 'dotted'): Notebook {
@@ -143,6 +160,7 @@ export function mergeBackup(library: Library, imported: Library): Library {
           pages: note.pages.map(page => ({
             ...page,
             id: crypto.randomUUID(),
+            images: page.images.map(image => ({ ...image, id: crypto.randomUUID(), assetId: ids.get(image.assetId)! })),
             ...(page.source ? { source: { ...page.source, assetId: ids.get(page.source.assetId)! } } : {}),
           })),
         }
