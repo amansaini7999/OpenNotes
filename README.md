@@ -47,6 +47,10 @@ open it in Safari and choose **Share → Add to Home Screen**. No account,
 certificate setup, or local server is needed. Wait for **Help & install** to
 confirm offline readiness before disconnecting.
 
+The **Install app** button at the top of the page shows step-by-step iPad and
+desktop instructions. iPad installation uses the browser's Home Screen action;
+there is no app package to download.
+
 The website delivers application files; your notebooks remain in your browser.
 GitHub Pages may log normal website requests, including IP addresses.
 
@@ -94,7 +98,10 @@ local desktop use.
 > `.opennotes` file somewhere safe.
 
 The save indicator confirms when a local transaction completes. Strokes are
-saved after pointer release; an interrupted in-progress stroke is discarded.
+saved after pointer release. If pen input is cancelled or capture is lost,
+already sampled pen ink is committed without adding unreliable cancellation
+coordinates. Cancelled touch/mouse strokes and eraser gestures are discarded.
+This does not guarantee recovery if the process closes before input is handled.
 Storage failures are shown explicitly, with retry and backup recovery options.
 Only one tab may edit the library at a time.
 
@@ -206,6 +213,10 @@ React manages the interface; live ink rendering stays outside React's render
 loop. Document transformations and geometry use pure functions, with
 persistence and file operations kept in separate modules.
 
+The drawing surface retains its live canvas between saved strokes and renders
+new pen segments incrementally. The app follows the browser's visible viewport
+height, with notebook scrolling kept inside the workspace rather than the page.
+
 ### Run checks
 
 ```powershell
@@ -219,7 +230,8 @@ npm run test:e2e
 
 Tests cover ink geometry and rendered pixels, pressure input, multi-touch zoom,
 document validation, persistence, offline startup, offline PDF operations,
-backup recovery, storage failures, concurrent tabs, and responsive layouts.
+backup recovery, storage failures, concurrent tabs, installation guidance,
+viewport-height changes, interrupted pen input, rapid strokes, and responsive layouts.
 Chromium-specific input-injection tests are intentionally skipped in WebKit.
 
 ## Contributing

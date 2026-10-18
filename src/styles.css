@@ -10,7 +10,9 @@
   --border: #e1e5dc;
 }
 * { box-sizing: border-box; }
-body { margin: 0; overscroll-behavior: none; }
+html, body, #root { width: 100%; height: 100%; min-height: 0; }
+body { margin: 0; overflow: hidden; overscroll-behavior: none; }
+#root { position: fixed; inset: 0; overflow: hidden; }
 button, input, select { font: inherit; }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
@@ -22,7 +24,7 @@ button { touch-action: manipulation; }
 a { color: inherit; }
 button svg { flex-shrink: 0; }
 input, select { min-width: 0; }
-.app-shell { display: flex; height: 100dvh; min-height: 500px; }
+.app-shell { display: flex; height: var(--app-height, 100dvh); min-height: 0; }
 .sidebar { width: 248px; flex-shrink: 0; background: #172d2b; color: #ecf0e8; padding: 34px 20px 20px; display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; padding: 0 6px; font-size: 23px; font-weight: 650; letter-spacing: -.8px; }
 .brand-mark { background: #edeee1; color: #244a40; display: grid; place-items: center; width: 40px; height: 43px; border-radius: 10px; transform: rotate(-6deg); }
@@ -51,6 +53,13 @@ nav { margin-top: 35px; }
 .save-state, .connection-state { display: flex; align-items: center; gap: 7px; color: #627969; }
 .save-state.failed { color: #a43636; }
 .connection-state { color: #7a867c; }
+.status-actions { display: flex; align-items: center; gap: 14px; }
+.install-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 6px 10px; background: #e5ecdf; border: 1px solid #cad9c3; border-radius: 7px; font-size: 11px; color: #28594e; white-space: nowrap; }
+.install-button:hover { background: #d7e4ce; }
+.install-steps { padding-left: 22px; font-size: 13px; line-height: 1.8; }
+.install-steps li { padding: 6px 0; }
+.install-steps svg { vertical-align: middle; }
+.install-readiness { border: 1px solid #cad9c3; border-radius: 7px; padding: 10px; background: #edf3e7; }
 .library { padding: 30px 44px 20px; overflow-y: auto; flex: 1; }
 .library-topline { display: flex; align-items: center; justify-content: space-between; }
 .eyebrow { letter-spacing: 1.6px; color: #8a958c; font-size: 9px; font-weight: 600; }
@@ -234,13 +243,14 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
   .editor-header { padding: 12px; gap: 7px; }
 }
 @media (max-width: 550px) {
-  .app-shell { min-height: 380px; }
   .sidebar, .editing .sidebar { width: 54px; padding: 20px 5px 10px; }
   .brand-mark { width: 34px; height: 37px; }
   .sidebar-create, .editing .sidebar-create { padding: 10px; }
   .nav-item, .editing .nav-item { padding: 12px 9px; }
   .library { padding: 21px 16px; }
   .status-strip { padding: 11px 15px; font-size: 9px; }
+  .status-actions { gap: 6px; }
+  .status-actions .connection-state { display: none; }
   .welcome { margin-top: 20px; padding: 24px 20px; min-height: 300px; }
   .welcome-copy { max-width: 100%; }
   .welcome h1 { font-size: 34px; }
@@ -288,5 +298,6 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
 @supports (padding: env(safe-area-inset-top)) {
   .sidebar { padding-top: max(24px,env(safe-area-inset-top)); padding-bottom: max(15px,env(safe-area-inset-bottom)); }
   .canvas-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .library { padding-bottom: max(20px,env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

@@ -7,10 +7,13 @@ import { usePwa } from './hooks/usePwa'
 import { NotebookLibrary } from './components/NotebookLibrary'
 import { NotebookEditor } from './components/NotebookEditor'
 import { Dialog } from './components/Dialog'
+import { InstallApp } from './components/InstallApp'
+import { useViewportHeight } from './hooks/useViewportHeight'
 
 type Modal = 'create' | 'help' | 'delete' | null
 
 export default function App() {
+  useViewportHeight()
   const { library, status, error: storageError, update, retry } = useLibrary()
   const pwa = usePwa()
   const [activeId, setActiveId] = useState<string | null>(() => new URLSearchParams(location.hash.slice(1)).get('notebook'))
@@ -108,7 +111,7 @@ export default function App() {
           {status === 'saving' || status === 'loading' ? <LoaderCircle size={14} className="spin" /> : status === 'error' ? <X size={14} /> : <Check size={14} />}
           {status === 'loading' ? 'Opening your workspace' : status === 'saving' ? 'Saving on this device…' : status === 'error' ? 'Not saved — action needed' : 'Saved on this device'}
         </span>
-        <span className="connection-state">{!pwa.online ? <><WifiOff size={14} /> Offline</> : <><HardDrive size={14} /> Local-first</>}</span>
+        <div className="status-actions"><span className="connection-state">{!pwa.online ? <><WifiOff size={14} /> Offline</> : <><HardDrive size={14} /> Local-first</>}</span><InstallApp offlineReady={pwa.offlineReady} /></div>
       </div>
       {(storageError || error || pwa.registrationError) && <div className="message error" role="alert"><span>{storageError || error || pwa.registrationError}</span>{storageError ? <><button onClick={retry}>Retry save</button><button disabled={!library} onClick={() => library && exportBackup(library)}>Export backup</button></> : error ? <button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button> : <button onClick={() => setModal('help')}>Offline help</button>}</div>}
       {notice && <div className="message notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}

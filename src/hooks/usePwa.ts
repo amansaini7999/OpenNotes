@@ -14,6 +14,9 @@ export function usePwa() {
     window.addEventListener('offline', disconnected)
     registerSW({
       onOfflineReady: () => setOfflineReady(true),
+      onRegisteredSW: (_url, registration) => {
+        if (registration?.active) setOfflineReady(true)
+      },
       onNeedRefresh: () => setUpdateReady(true),
       onRegisterError: (cause: unknown) => setRegistrationError(
         `Offline setup failed: ${cause instanceof Error ? cause.message : String(cause)}. Keep the app open and retry on a secure connection.`,

@@ -22,7 +22,9 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
-  const image = useRef<HTMLImageElement | undefined>(undefined)
+  const [background, setBackground] = useState<{ source: string; image: HTMLImageElement } | null>(null)
+  const strokesRef = useRef(page.strokes)
+  const renderedPoints = useRef(0)
   const viewRef = useRef<View>({ x: 0, y: 0, scale: 1 })
   const [view, setView] = useState(viewRef.current)
   const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean } | null>(null)
@@ -42,7 +44,13 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
   const clearLive = () => {
     const canvas = live.current
     const ctx = canvas?.getContext('2d')
-    if (ctx && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height)
+    if (ctx && canvas) {
+      ctx.save()
+      ctx.resetTransform()
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.restore()
+    }
+    renderedPoints.current = 0
   }
 
   const drawLive = () => {
@@ -52,6 +60,14 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
     if (!canvas || !ctx) return
     const ratio = canvas.width / page.width
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+    if (stroke && !stroke.eraser && stroke.stroke.tool === 'pen') {
+      const points = stroke.stroke.points
+      if (points.length > renderedPoints.current) {
+        drawStroke(ctx, { ...stroke.stroke, points: points.slice(Math.max(0, renderedPoints.current - 1)) })
+        renderedPoints.current = points.length
+      }
+      return
+    }
     ctx.clearRect(0, 0, page.width, page.height)
     if (stroke && !stroke.eraser) drawStroke(ctx, stroke.stroke)
     if (stroke?.eraser && stroke.stroke.points.length) {
@@ -68,6 +84,7 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
     const element = viewport.current
     if (!element) return
     const fit = () => {
+      if (active.current) return
       const scale = Math.max(0.1, Math.min((element.clientWidth - 48) / page.width, (element.clientHeight - 48) / page.height, 1.4))
       const next = { scale, x: (element.clientWidth - page.width * scale) / 2, y: (element.clientHeight - page.height * scale) / 2 }
       viewRef.current = next
@@ -98,26 +115,34 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
 
   useEffect(() => {
     let cancelled = false
-    image.current = undefined
-    const paint = () => {
-      if (cancelled || !committed.current || !live.current) return
-      const ratio = Math.min(devicePixelRatio || 1, 2)
-      for (const canvas of [committed.current, live.current]) {
-        canvas.width = Math.ceil(page.width * ratio)
-        canvas.height = Math.ceil(page.height * ratio)
-      }
-      const ctx = committed.current.getContext('2d')
-      if (!ctx) { onError('Canvas rendering is unavailable in this browser.'); return }
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-      paintPage(ctx, page, image.current)
-    }
     if (page.background) {
-      void loadImage(page.background).then(value => { image.current = value; paint() }).catch((cause: unknown) => {
+      const source = page.background
+      void loadImage(source).then(image => {
+        if (!cancelled) setBackground({ source, image })
+      }).catch((cause: unknown) => {
         if (!cancelled) onError(cause instanceof Error ? cause.message : 'Page image could not be loaded.')
       })
-    } else paint()
+    } else setBackground(null)
     return () => { cancelled = true }
-  }, [page, onError])
+  }, [page.background, onError])
+
+  useLayoutEffect(() => {
+    strokesRef.current = page.strokes
+    if (!committed.current || !live.current) return
+    const ratio = Math.min(devicePixelRatio || 1, 2)
+    for (const canvas of [committed.current, live.current]) {
+      const width = Math.ceil(page.width * ratio), height = Math.ceil(page.height * ratio)
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width
+        canvas.height = height
+        if (canvas === live.current) renderedPoints.current = 0
+      }
+    }
+    const ctx = committed.current.getContext('2d')
+    if (!ctx) { onError('Canvas rendering is unavailable in this browser.'); return }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+    paintPage(ctx, page, background?.source === page.background ? background?.image : undefined)
+  }, [page, background, onError])
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
 
@@ -149,6 +174,7 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (active.current?.type === 'pen' && event.pointerType !== 'pen')) return
+    if (event.cancelable) event.preventDefault()
     if (event.pointerType === 'pen') {
       if (active.current?.type === 'touch') { active.current = null; clearLive() }
       touches.current.clear()
@@ -174,6 +200,7 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
       eraser: tool === 'eraser',
       stroke: { id: crypto.randomUUID(), tool: tool === 'highlighter' ? 'highlighter' : 'pen', color, width, points: [pointFrom(event.nativeEvent)] },
     }
+    clearLive()
     drawLive()
   }
 
@@ -199,6 +226,7 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
       return
     }
     if (active.current?.id !== event.pointerId) return
+    if (event.cancelable) event.preventDefault()
     const samples = event.nativeEvent.getCoalescedEvents?.() ?? []
     for (const sample of samples.length ? samples : [event.nativeEvent]) active.current.stroke.points.push(pointFrom(sample))
     if (!frame.current) frame.current = requestAnimationFrame(drawLive)
@@ -214,10 +242,22 @@ export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCom
     frame.current = 0
     active.current = null
     clearLive()
-    if (cancelled) return
-    stroke.stroke.points.push(pointFrom(event.nativeEvent))
-    const next = stroke.eraser ? eraseStrokes(page.strokes, stroke.stroke.points, width * 3 + 5) : [...page.strokes, stroke.stroke]
-    if (next.length !== page.strokes.length || !stroke.eraser) onChange(next)
+    // Preserve sampled pen ink when Safari cancels input or capture is lost.
+    // Cancellation coordinates are not reliable and must not create a spurious segment.
+    if (cancelled && (stroke.type !== 'pen' || stroke.eraser)) return
+    if (!cancelled) {
+      const point = pointFrom(event.nativeEvent)
+      point.pressure = stroke.stroke.points.at(-1)!.pressure
+      stroke.stroke.points.push(point)
+    }
+    const previous = strokesRef.current
+    const next = stroke.eraser ? eraseStrokes(previous, stroke.stroke.points, width * 3 + 5) : [...previous, stroke.stroke]
+    if (next.length !== previous.length || !stroke.eraser) {
+      strokesRef.current = next
+      const ctx = committed.current?.getContext('2d')
+      if (ctx && !stroke.eraser) drawStroke(ctx, stroke.stroke)
+      onChange(next)
+    }
   }
 
   return <div
