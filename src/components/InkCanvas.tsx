@@ -1,0 +1,249 @@
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { drawStroke, loadImage, paintPage } from '../render'
+import { eraseStrokes, type NotePage, type Point, type Stroke, type Tool } from '../model'
+
+type View = { x: number; y: number; scale: number }
+type Position = { x: number; y: number }
+type Gesture = { distance: number; midpoint: Position; view: View }
+interface Props {
+  page: NotePage
+  tool: Tool
+  color: string
+  width: number
+  penOnly: boolean
+  fitToken: number
+  zoomCommand: { factor: number; serial: number }
+  onChange: (strokes: Stroke[]) => void
+  onZoom: (percent: number) => void
+  onError: (message: string) => void
+}
+
+export function InkCanvas({ page, tool, color, width, penOnly, fitToken, zoomCommand, onChange, onZoom, onError }: Props) {
+  const viewport = useRef<HTMLDivElement>(null)
+  const committed = useRef<HTMLCanvasElement>(null)
+  const live = useRef<HTMLCanvasElement>(null)
+  const image = useRef<HTMLImageElement | undefined>(undefined)
+  const viewRef = useRef<View>({ x: 0, y: 0, scale: 1 })
+  const [view, setView] = useState(viewRef.current)
+  const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean } | null>(null)
+  const touches = useRef(new Map<number, Position>())
+  const gesture = useRef<Gesture | null>(null)
+  const pan = useRef<{ id: number; start: Position; view: View } | null>(null)
+  const frame = useRef(0)
+  const onZoomRef = useRef(onZoom)
+  onZoomRef.current = onZoom
+
+  const moveView = (next: View) => {
+    viewRef.current = next
+    setView(next)
+    onZoomRef.current(Math.round(next.scale * 100))
+  }
+
+  const clearLive = () => {
+    const canvas = live.current
+    const ctx = canvas?.getContext('2d')
+    if (ctx && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
+  const drawLive = () => {
+    frame.current = 0
+    const canvas = live.current, stroke = active.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    const ratio = canvas.width / page.width
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+    ctx.clearRect(0, 0, page.width, page.height)
+    if (stroke && !stroke.eraser) drawStroke(ctx, stroke.stroke)
+    if (stroke?.eraser && stroke.stroke.points.length) {
+      const point = stroke.stroke.points.at(-1)!
+      ctx.strokeStyle = '#ba6066'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.arc(point.x, point.y, width * 3 + 5, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+  }
+
+  useLayoutEffect(() => {
+    const element = viewport.current
+    if (!element) return
+    const fit = () => {
+      const scale = Math.max(0.1, Math.min((element.clientWidth - 48) / page.width, (element.clientHeight - 48) / page.height, 1.4))
+      const next = { scale, x: (element.clientWidth - page.width * scale) / 2, y: (element.clientHeight - page.height * scale) / 2 }
+      viewRef.current = next
+      setView(next)
+      onZoomRef.current(Math.round(scale * 100))
+    }
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [page.id, page.width, page.height, fitToken])
+
+  useEffect(() => {
+    const element = viewport.current
+    if (!element || zoomCommand.serial === 0) return
+    const previous = viewRef.current
+    const scale = Math.max(0.1, Math.min(4, previous.scale * zoomCommand.factor))
+    const center = { x: element.clientWidth / 2, y: element.clientHeight / 2 }
+    const next = {
+      scale,
+      x: center.x - (center.x - previous.x) * scale / previous.scale,
+      y: center.y - (center.y - previous.y) * scale / previous.scale,
+    }
+    viewRef.current = next
+    setView(next)
+    onZoomRef.current(Math.round(scale * 100))
+  }, [zoomCommand])
+
+  useEffect(() => {
+    let cancelled = false
+    image.current = undefined
+    const paint = () => {
+      if (cancelled || !committed.current || !live.current) return
+      const ratio = Math.min(devicePixelRatio || 1, 2)
+      for (const canvas of [committed.current, live.current]) {
+        canvas.width = Math.ceil(page.width * ratio)
+        canvas.height = Math.ceil(page.height * ratio)
+      }
+      const ctx = committed.current.getContext('2d')
+      if (!ctx) { onError('Canvas rendering is unavailable in this browser.'); return }
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+      paintPage(ctx, page, image.current)
+    }
+    if (page.background) {
+      void loadImage(page.background).then(value => { image.current = value; paint() }).catch((cause: unknown) => {
+        if (!cancelled) onError(cause instanceof Error ? cause.message : 'Page image could not be loaded.')
+      })
+    } else paint()
+    return () => { cancelled = true }
+  }, [page, onError])
+
+  useEffect(() => () => cancelAnimationFrame(frame.current), [])
+
+  const localPosition = (event: { clientX: number; clientY: number }): Position => {
+    const rect = viewport.current!.getBoundingClientRect()
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  }
+
+  const pointFrom = (event: PointerEvent): Point => {
+    const position = localPosition(event)
+    const current = viewRef.current
+    return {
+      x: Math.max(0, Math.min(page.width, (position.x - current.x) / current.scale)),
+      y: Math.max(0, Math.min(page.height, (position.y - current.y) / current.scale)),
+      pressure: event.pointerType === 'pen' ? Math.max(0.05, event.pressure) : 0.5,
+    }
+  }
+
+  const startGesture = () => {
+    const [a, b] = [...touches.current.values()]
+    gesture.current = {
+      distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      midpoint: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      view: { ...viewRef.current },
+    }
+    if (active.current?.type === 'touch') { active.current = null; clearLive() }
+    pan.current = null
+  }
+
+  const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (active.current?.type === 'pen' && event.pointerType !== 'pen')) return
+    if (event.pointerType === 'pen') {
+      if (active.current?.type === 'touch') { active.current = null; clearLive() }
+      touches.current.clear()
+      gesture.current = null
+      pan.current = null
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    if (event.pointerType === 'touch') {
+      touches.current.set(event.pointerId, localPosition(event))
+      if (touches.current.size >= 2) { startGesture(); return }
+    }
+    if (active.current) return
+    if (tool === 'hand' || (penOnly && event.pointerType === 'touch')) {
+      pan.current = { id: event.pointerId, start: localPosition(event), view: { ...viewRef.current } }
+      return
+    }
+    const raw = localPosition(event)
+    const v = viewRef.current
+    if (raw.x < v.x || raw.y < v.y || raw.x > v.x + page.width * v.scale || raw.y > v.y + page.height * v.scale) return
+    active.current = {
+      id: event.pointerId,
+      type: event.pointerType,
+      eraser: tool === 'eraser',
+      stroke: { id: crypto.randomUUID(), tool: tool === 'highlighter' ? 'highlighter' : 'pen', color, width, points: [pointFrom(event.nativeEvent)] },
+    }
+    drawLive()
+  }
+
+  const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (active.current?.type === 'pen' && event.pointerType !== 'pen') return
+    if (touches.current.has(event.pointerId)) {
+      touches.current.set(event.pointerId, localPosition(event))
+      if (touches.current.size >= 2 && gesture.current) {
+        const [a, b] = [...touches.current.values()], start = gesture.current
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        const scale = Math.max(0.1, Math.min(4, start.view.scale * Math.hypot(a.x - b.x, a.y - b.y) / start.distance))
+        moveView({
+          scale,
+          x: midpoint.x - (start.midpoint.x - start.view.x) * scale / start.view.scale,
+          y: midpoint.y - (start.midpoint.y - start.view.y) * scale / start.view.scale,
+        })
+        return
+      }
+    }
+    if (pan.current?.id === event.pointerId) {
+      const position = localPosition(event), start = pan.current
+      moveView({ ...start.view, x: start.view.x + position.x - start.start.x, y: start.view.y + position.y - start.start.y })
+      return
+    }
+    if (active.current?.id !== event.pointerId) return
+    const samples = event.nativeEvent.getCoalescedEvents?.() ?? []
+    for (const sample of samples.length ? samples : [event.nativeEvent]) active.current.stroke.points.push(pointFrom(sample))
+    if (!frame.current) frame.current = requestAnimationFrame(drawLive)
+  }
+
+  const finishPointer = (event: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) => {
+    touches.current.delete(event.pointerId)
+    if (touches.current.size < 2) gesture.current = null
+    if (pan.current?.id === event.pointerId) pan.current = null
+    const stroke = active.current
+    if (stroke?.id !== event.pointerId) return
+    cancelAnimationFrame(frame.current)
+    frame.current = 0
+    active.current = null
+    clearLive()
+    if (cancelled) return
+    stroke.stroke.points.push(pointFrom(event.nativeEvent))
+    const next = stroke.eraser ? eraseStrokes(page.strokes, stroke.stroke.points, width * 3 + 5) : [...page.strokes, stroke.stroke]
+    if (next.length !== page.strokes.length || !stroke.eraser) onChange(next)
+  }
+
+  return <div
+    className={`ink-viewport tool-${tool}`}
+    ref={viewport}
+    data-testid="ink-viewport"
+    aria-label="Writing surface. Use a pen or mouse to draw; two fingers to pan and zoom."
+    onPointerDown={pointerDown}
+    onPointerMove={pointerMove}
+    onPointerUp={event => finishPointer(event, false)}
+    onPointerCancel={event => finishPointer(event, true)}
+    onLostPointerCapture={event => finishPointer(event, true)}
+    onContextMenu={event => event.preventDefault()}
+    onWheel={event => {
+      if (event.ctrlKey || event.metaKey) {
+        const previous = viewRef.current, position = localPosition(event)
+        const scale = Math.max(0.1, Math.min(4, previous.scale * Math.exp(-event.deltaY * 0.005)))
+        moveView({ scale, x: position.x - (position.x - previous.x) * scale / previous.scale, y: position.y - (position.y - previous.y) * scale / previous.scale })
+      } else {
+        moveView({ ...viewRef.current, x: viewRef.current.x - event.deltaX, y: viewRef.current.y - event.deltaY })
+      }
+    }}
+  >
+    <div className="paper" data-testid="paper" style={{ width: page.width, height: page.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
+      <canvas ref={committed} data-testid="ink-canvas" aria-label="Notebook page" />
+      <canvas ref={live} aria-hidden="true" />
+    </div>
+  </div>
+}
