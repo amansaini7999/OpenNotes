@@ -5,6 +5,7 @@ import { InkCanvas } from './InkCanvas'
 import { prefersPencilOnly } from '../input'
 import { importPageFiles } from '../files'
 import { Dialog } from './Dialog'
+import { usesTabletLayout, type PageTurn } from '../navigation'
 
 interface Props {
   notebook: Notebook
@@ -15,7 +16,6 @@ interface Props {
   onDelete: () => void
   onError: (message: string) => void
   saveIndicator: ReactNode
-  installAction: ReactNode
   onHelp: () => void
 }
 type History = { undo: Stroke[][]; redo: Stroke[][] }
@@ -26,7 +26,8 @@ const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[
   { id: 'hand', name: 'Pan', icon: Hand, shortcut: 'V' },
 ]
 
-export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, onDelete, onError, saveIndicator, installAction, onHelp }: Props) {
+export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, onDelete, onError, saveIndicator, onHelp }: Props) {
+  const [tabletLayout] = useState(() => usesTabletLayout(navigator.userAgent, navigator.platform, navigator.maxTouchPoints, matchMedia('(pointer: coarse)').matches))
   const [pageId, setPageId] = useState(notebook.pages[0].id)
   const [tool, setTool] = useState<Tool>('pen')
   const [color, setColor] = useState(colors[0])
@@ -35,8 +36,9 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
   const [penOnly, setPenOnly] = useState(() => prefersPencilOnly(navigator.userAgent, navigator.platform, navigator.maxTouchPoints))
   const [zoom, setZoom] = useState(100)
   const [fitToken, setFitToken] = useState(0)
-  const [fitMode, setFitMode] = useState<'width' | 'page'>('width')
-  const [pagesOpen, setPagesOpen] = useState(false)
+  const [fitMode, setFitMode] = useState<'width' | 'page'>(tabletLayout ? 'width' : 'page')
+  const [pagesOpen, setPagesOpen] = useState(!tabletLayout)
+  const [pageTurn, setPageTurn] = useState<PageTurn | null>(null)
   const [toolsHidden, setToolsHidden] = useState(false)
   const [panel, setPanel] = useState<'insert' | 'tools' | 'document' | null>(null)
   const [importing, setImporting] = useState('')
@@ -114,6 +116,13 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
     setFitMode(mode)
     setFitToken(value => value + 1)
   }
+  const turnPage = (direction: PageTurn) => {
+    const next = notebook.pages[pageIndex + (direction === 'next' ? 1 : -1)]
+    if (!next) return
+    setPageTurn(direction)
+    setZoomCommand({ factor: 1, serial: 0 })
+    setPageId(next.id)
+  }
 
   return <main className="editor" data-history-version={historyVersion}>
     <header className="editor-header">
@@ -152,7 +161,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
         <button className="add-page" onClick={() => setPanel('insert')} disabled={notebook.pages.length >= 500}><Plus size={16} /> Insert pages</button>
       </aside>}
       <div className="canvas-workspace">
-        <InkCanvas key={page.id} page={page} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} />
+        <InkCanvas key={page.id} page={page} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={tabletLayout} pageTurn={tabletLayout ? pageTurn : null} onPageTurn={turnPage} />
         <div className="canvas-bottom">
           <div className="page-navigation">
             <button className="icon-button" aria-label="Previous page" disabled={pageIndex === 0} onClick={() => setPageId(notebook.pages[pageIndex - 1].id)}><ChevronLeft size={17} /></button>
@@ -194,8 +203,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
       <div className="document-actions">
         <button className="secondary" onClick={() => { setPanel(null); onPdf() }}><FileDown size={18} /> Export PDF</button>
         <button className="secondary" aria-label="Download notebook backup" onClick={() => { setPanel(null); onBackup() }}><Download size={18} /> Editable backup</button>
-        {installAction}
-        <button className="secondary" onClick={() => { setPanel(null); onHelp() }}>Help & storage</button>
+        <button className="secondary" onClick={() => { setPanel(null); onHelp() }}>Help</button>
         <button className="secondary danger" aria-label="Delete notebook" onClick={() => { setPanel(null); onDelete() }}><Trash2 size={18} /> Delete notebook</button>
       </div>
     </Dialog>}

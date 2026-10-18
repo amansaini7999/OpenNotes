@@ -105,7 +105,7 @@ export default function App() {
       </nav>
       <div className="sidebar-bottom">
         <div className="local-card"><span className="local-icon"><ShieldCheck size={21} /></span><strong>Just you and your ideas.</strong><p>No accounts. No subscriptions.<br />Your notebooks stay on this device.</p><button onClick={() => setModal('help')}>How local storage works <span>↗</span></button></div>
-        <button className="sidebar-help" onClick={() => setModal('help')}><CircleHelp size={17} /> Help & install</button>
+        <button className="sidebar-help" onClick={() => setModal('help')}><CircleHelp size={17} /> Help</button>
         <div className="sidebar-signature"><Leaf size={15} /><span>Made for a more open world.</span></div>
       </div>
     </aside>
@@ -113,12 +113,12 @@ export default function App() {
     <div className="main-column">
       {!active && <div className="status-strip">
         {saveIndicator}
-        <div className="status-actions"><span className="connection-state">{!pwa.online ? <><WifiOff size={14} /> Offline</> : <><HardDrive size={14} /> Local-first</>}</span><InstallApp offlineReady={pwa.offlineReady} /></div>
+        <div className="status-actions"><span className="connection-state">{!pwa.online ? <><WifiOff size={14} /> Offline</> : <><HardDrive size={14} /> Local-first</>}</span></div>
       </div>}
       {(storageError || error || pwa.registrationError) && <div className="message error" role="alert"><span>{storageError || error || pwa.registrationError}</span>{storageError ? <><button onClick={retry}>Retry save</button><button disabled={!library} onClick={() => library && exportBackup(library)}>Export backup</button></> : error ? <button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button> : <button onClick={() => setModal('help')}>Offline help</button>}</div>}
       {notice && <div className="message notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}
       {pwa.updateReady && <div className="message notice"><span>An update is ready. Finish writing and wait for “Saved on this device”, then close all OpenNotes tabs and reopen to update.</span></div>}
-      {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onBackup={() => exportBackup({ format: 'opennotes', version: 1, notebooks: [active] }, active.title)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onDelete={() => setModal('delete')} onError={showError} saveIndicator={saveIndicator} installAction={<InstallApp offlineReady={pwa.offlineReady} />} onHelp={() => setModal('help')} />
+      {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onBackup={() => exportBackup({ format: 'opennotes', version: 1, notebooks: [active] }, active.title)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onDelete={() => setModal('delete')} onError={showError} saveIndicator={saveIndicator} onHelp={() => setModal('help')} />
         : <NotebookLibrary notebooks={library.notebooks} onOpen={setActiveId} onCreate={() => { setName(''); setModal('create') }} onImport={() => fileInput.current?.click()} />
         : <div className="loading-state">{status === 'error' ? <><h1>Your notes need attention.</h1><p>We will not replace unreadable data with an empty library. Use the recovery message above.</p></> : <><LoaderCircle className="spin" size={30} /><p>Making room for your ideas…</p></>}</div>}
     </div>
@@ -146,15 +146,14 @@ export default function App() {
         setModal(null)
       }}>Delete notebook</button></div>
     </Dialog>}
-    {modal === 'help' && <Dialog title="Your notebook. Your device." onClose={() => setModal(null)}>
+    {modal === 'help' && <Dialog title="Help" onClose={() => setModal(null)}>
       <div className="help-content">
-        <h3>Works without the internet</h3><p>{pwa.offlineReady ? 'The app is cached and ready for offline use.' : 'For offline use, open a production build from localhost or trusted HTTPS and allow its service worker to finish caching.'} Notes save locally in this browser. Nothing is uploaded.</p>
-        <h3>Install on your iPad</h3><p>Open a trusted HTTPS copy in Safari, then use Share → Add to Home Screen. On Chrome desktop, use the browser’s Install option. A first load is required; double-clicking an HTML file does not install a PWA.</p>
-        <h3>Local does not mean backed up</h3><p>Clearing site data, removing the app, changing its address, or storage eviction can lose notes. Use “Back up everything” regularly. There is no automatic cloud sync. HTTP localhost on Windows and HTTPS on iPad are separate libraries.</p>
+        <p>{pwa.offlineReady ? 'Ready for offline use.' : 'Keep the app open online until offline setup completes.'}</p>
+        <p>Notes are stored in this browser. Clearing site data or storage eviction can delete them. Export editable backups regularly; there is no automatic cloud sync.</p>
         <button className="secondary" onClick={() => void requestPersistence()}><ShieldCheck size={17} /> Request storage protection</button>
-        <h3>Writing & shortcuts</h3><p>Use P for pen, H for highlighter, E for eraser and V to pan. The circular eraser removes only the ink under its tip; adjust Eraser size to change its radius. Ctrl/Cmd+Z undoes; Shift adds redo. Palm protection starts automatically on iPad and when a pen is first detected. One touch does nothing, two fingers pan/zoom, and the Pan tool explicitly enables one-finger navigation. Touches are ignored during and briefly after pen input to reduce palm interference. Browser palm classification is limited; verify on your iPad.</p>
-        <h3>Pages & files</h3><p>Notebook view starts page-first. Show pages opens thumbnails; Hide tools gives more writing space. Notebook options contains paper style, export, backup and help. Use Insert pages to add a blank page, PNG/JPEG/WebP images or PDF pages immediately after the current page. Existing ink stays unchanged. Images support up to 20 MB each; PDFs support up to 30 MB / 50 pages. A batch inserts up to 50 pages / 100 MB, within the 500-page notebook limit. Imported pages are rasterized; exports preserve appearance, not selectable PDF text. Editable backups use .opennotes format. Cloud sync, audio and handwriting recognition are not included.</p>
-        <p className="quiet">OpenNotes is independent and is not affiliated with Goodnotes.</p>
+        <p>On iPad, swipe left/right with one or two fingers to turn a fitted page. Pinch to zoom; use two fingers to pan when zoomed. Touch navigation pauses during pen input and briefly afterward.</p>
+        <div className="document-actions"><InstallApp offlineReady={pwa.offlineReady} /></div>
+        <p><a href="https://github.com/amansaini7999/OpenNotes/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noreferrer">User guide and keyboard shortcuts</a></p>
       </div>
     </Dialog>}
   </div>

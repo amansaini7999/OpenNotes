@@ -3,10 +3,12 @@ import { drawStroke, loadImage, paintPage } from '../render'
 import { type NotePage, type Point, type Stroke, type Tool } from '../model'
 import { eraseInk } from '../eraser'
 import { suppressTouch } from '../input'
+import { horizontalPageTurn, type PageTurn } from '../navigation'
 
 type View = { x: number; y: number; scale: number }
 type Position = { x: number; y: number }
 type Gesture = { distance: number; midpoint: Position; view: View }
+type Swipe = { start: Position; last: Position; startedAt: number; fingers: number; pinched: boolean; view: View }
 interface Props {
   page: NotePage
   tool: Tool
@@ -21,9 +23,12 @@ interface Props {
   onZoom: (percent: number) => void
   onError: (message: string) => void
   onPenDetected: () => void
+  pageSwipes: boolean
+  pageTurn: PageTurn | null
+  onPageTurn: (direction: PageTurn) => void
 }
 
-export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected }: Props) {
+export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
@@ -38,6 +43,7 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
   const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean } | null>(null)
   const touches = useRef(new Map<number, Position>())
   const gesture = useRef<Gesture | null>(null)
+  const swipe = useRef<Swipe | null>(null)
   const pan = useRef<{ id: number; type: string; start: Position; view: View } | null>(null)
   const frame = useRef(0)
   const onZoomRef = useRef(onZoom)
@@ -187,6 +193,7 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
   }
 
   const dismissTouches = () => {
+    swipe.current = null
     touches.current.clear()
     gesture.current = null
     if (pan.current?.type === 'touch') pan.current = null
@@ -216,8 +223,20 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     if (event.pointerType === 'touch') {
+      if (!touches.current.size && pageSwipes && penOnly && tool !== 'hand' && page.width * viewRef.current.scale <= viewport.current!.clientWidth + 1) {
+        const position = localPosition(event)
+        swipe.current = { start: position, last: position, startedAt: performance.now(), fingers: 1, pinched: false, view: { ...viewRef.current } }
+      }
       touches.current.set(event.pointerId, localPosition(event))
-      if (touches.current.size >= 2) { startGesture(); return }
+      if (touches.current.size >= 2) {
+        startGesture()
+        if (swipe.current && touches.current.size === 2) {
+          swipe.current.start = gesture.current!.midpoint
+          swipe.current.last = gesture.current!.midpoint
+          swipe.current.fingers = 2
+        } else swipe.current = null
+        return
+      }
     }
     if (active.current) return
     if (event.pointerType === 'touch' && penOnly && tool !== 'hand') return
@@ -250,10 +269,15 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
     if (active.current?.type === 'pen' && event.pointerType !== 'pen') return
     if (touches.current.has(event.pointerId)) {
       touches.current.set(event.pointerId, localPosition(event))
+      if (swipe.current?.fingers === 1) swipe.current.last = localPosition(event)
       if (touches.current.size >= 2 && gesture.current) {
         const [a, b] = [...touches.current.values()], start = gesture.current
         const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
         const scale = Math.max(0.1, Math.min(4, start.view.scale * Math.hypot(a.x - b.x, a.y - b.y) / start.distance))
+        if (swipe.current) {
+          swipe.current.last = midpoint
+          swipe.current.pinched = Math.abs(scale / start.view.scale - 1) > 0.08
+        }
         moveView({
           scale,
           x: midpoint.x - (start.midpoint.x - start.view.x) * scale / start.view.scale,
@@ -281,6 +305,20 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
   }
 
   const finishPointer = (event: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) => {
+    if (event.pointerType === 'touch' && touches.current.has(event.pointerId) && swipe.current) {
+      const candidate = swipe.current
+      swipe.current = null
+      if (!cancelled) {
+        if (candidate.fingers === 1) candidate.last = localPosition(event)
+        const direction = horizontalPageTurn(candidate.start, candidate.last, performance.now() - candidate.startedAt, candidate.pinched)
+        if (direction) {
+          moveView(candidate.view)
+          dismissTouches()
+          onPageTurn(direction)
+          return
+        }
+      }
+    }
     touches.current.delete(event.pointerId)
     if (touches.current.size < 2) gesture.current = null
     if (pan.current?.id === event.pointerId) pan.current = null
@@ -314,6 +352,7 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
 
   return <div
     className={`ink-viewport tool-${tool}`}
+    data-page-turn={pageTurn ?? undefined}
     ref={viewport}
     data-testid="ink-viewport"
     aria-label="Writing surface. Use a pen or mouse to draw; two fingers to pan and zoom."
