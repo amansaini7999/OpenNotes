@@ -1,4 +1,4 @@
-import { pressureWidth, type NotePage, type Stroke } from './model'
+import { dotRadius, isDotStroke, pressureWidth, type NotePage, type Stroke } from './model'
 
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   if (!stroke.points.length) return
@@ -7,21 +7,18 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.fillStyle = stroke.color
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-  if (stroke.tool === 'highlighter') {
+  if (isDotStroke(stroke)) {
+    const point = stroke.points[0]
+    ctx.globalAlpha = stroke.tool === 'highlighter' ? 0.3 : 1
+    ctx.beginPath()
+    ctx.arc(point.x, point.y, dotRadius(stroke), 0, Math.PI * 2)
+    ctx.fill()
+  } else if (stroke.tool === 'highlighter') {
     ctx.globalAlpha = 0.3
     ctx.lineWidth = stroke.width * 5
     ctx.beginPath()
     stroke.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y))
-    if (stroke.points.length === 1) {
-      const p = stroke.points[0]
-      ctx.arc(p.x, p.y, ctx.lineWidth / 2, 0, Math.PI * 2)
-      ctx.fill()
-    } else ctx.stroke()
-  } else if (stroke.points.length === 1) {
-    const p = stroke.points[0]
-    ctx.beginPath()
-    ctx.arc(p.x, p.y, pressureWidth(stroke.width, p.pressure) / 2, 0, Math.PI * 2)
-    ctx.fill()
+    ctx.stroke()
   } else {
     for (let i = 1; i < stroke.points.length; i++) {
       const a = stroke.points[i - 1], b = stroke.points[i]

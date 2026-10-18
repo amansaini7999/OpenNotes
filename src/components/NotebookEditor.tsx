@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, Undo2, X } from 'lucide-react'
-import { colors, createPage, insertPagesAfter, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset } from '../model'
+import { colors, createPage, insertPagesAfter, dotRadius, isDotStroke, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset } from '../model'
 import { InkCanvas } from './InkCanvas'
 import { prefersPencilOnly } from '../input'
 import { importPageFiles } from '../files'
@@ -284,6 +284,8 @@ function PagePreview({ page, sources }: { page: NotePage; sources: SourceAsset[]
       const asset = sources.find(value => value.id === image.assetId)
       return asset && <image key={image.id} href={`data:${asset.mime};base64,${asset.data}`} x={image.x} y={image.y} width={image.width} height={image.height} />
     })}
-    {page.strokes.map(stroke => <polyline key={stroke.id} points={stroke.points.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={stroke.color} strokeWidth={stroke.tool === 'highlighter' ? stroke.width * 5 : stroke.width} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} strokeLinecap="round" strokeLinejoin="round" />)}
+    {page.strokes.map(stroke => isDotStroke(stroke)
+      ? <circle key={stroke.id} cx={stroke.points[0].x} cy={stroke.points[0].y} r={dotRadius(stroke)} fill={stroke.color} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} />
+      : <polyline key={stroke.id} points={stroke.points.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={stroke.color} strokeWidth={stroke.tool === 'highlighter' ? stroke.width * 5 : stroke.width} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} strokeLinecap="round" strokeLinejoin="round" />)}
   </svg>
 }
