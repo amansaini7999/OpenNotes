@@ -84,6 +84,8 @@ and a name/shared-ink match suggests an existing notebook, restore requires a
 choice: keep local, replace the uniquely matched version, or explicitly import
 a separate copy. A name match alone never permits an automatic overwrite or
 copy. Confirmed legacy matches remember an ID alias for later restores.
+“Restore complete” is shown only after the local database transaction succeeds.
+A failed save shows recovery actions instead of reporting a successful restore.
 Choose **Import as separate copies** only when duplicates are intentional.
 Duplicates created by older app versions are not deleted automatically.
 

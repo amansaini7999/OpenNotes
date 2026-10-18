@@ -87,13 +87,15 @@ export default function App() {
     if (!restore) return
     const request = restore
     setRestore(null)
+    setNotice('')
     await runTask('Restoring notebooks…', async () => {
       const plan = copies ? request.plan : await planBackupRestore(request.plan.base, request.imported, request.decisions)
       if (!copies && plan.reviews.some(review => !request.decisions[review.incomingId])) throw new Error('Some backup versions still need an explicit restore choice. Import the backup again and review them.')
-      update(value => {
+      const saved = await update(value => {
         if (value !== request.plan.base) throw new Error('Notebooks changed while this backup was being reviewed. Import it again to review the latest versions.')
         return copies ? mergeBackup(value, request.imported) : plan.library
       })
+      if (!saved) throw new Error('Restore could not be saved on this device. Export a backup of the current in-memory notes and retry saving.')
       setNotice(copies ? 'Imported separate copies as requested.' : `Restore complete: ${plan.added} added, ${plan.updated} updated, ${plan.unchanged} unchanged, ${plan.keptNewer + plan.keptLocal} local versions kept, ${plan.conflicts} copies explicitly requested.`)
     })
   }
