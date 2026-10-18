@@ -17,6 +17,8 @@
 - Palm protection is automatic on iPad and after pen detection. Touches during
   pen contact and for 700 ms afterward are ignored. Browser input policy is not
   equivalent to native hardware palm classification.
+- iPhone starts with finger drawing enabled. Two-finger navigation does not
+  turn a finger stroke into ink; detecting a real pen enables pen-first mode.
 - The circular eraser removes the touched portion of ink, not paper or imported
   backgrounds. Each gesture can be undone.
 
@@ -71,7 +73,9 @@ Undo/redo retains up to 50 actions per page during the session.
 **Saved on this device** means an IndexedDB transaction completed. It does not
 mean a file was saved to Files, Google Drive, or another external folder.
 Strokes commit on release; sampled pen ink is retained on handled cancellation
-or lost capture. Process termination before handling input can still lose work.
+or app interruption. Losing pointer capture no longer ends the pen stroke:
+tracking continues until release/cancellation, including events outside the
+writing surface. Process termination before handling input can still lose work.
 
 Use **Back up everything** from the library to export `.opennotes` files.
 Import shows a restore summary before applying changes. Stable notebook IDs and
@@ -93,6 +97,16 @@ Duplicates created by older app versions are not deleted automatically.
 Clearing browser data, storage eviction, or changing the site's origin can
 remove access to notebooks. Export backups regularly. Only one tab can edit
 the library at a time; there is no automatic cloud sync.
+
+After notebook use, OpenNotes automatically requests browser persistence where
+supported. Help reports whether it was granted, denied, unsupported, or failed;
+there is no protection-request button. A grant reduces eviction risk but does
+not protect against clearing data, uninstalling the app, or device loss.
+
+This PWA cannot choose a default iPad installation/Files directory or
+automatically overwrite files in a remembered Files folder. IndexedDB and OPFS
+remain browser-managed storage. App-owned document storage requires a native
+iPad build with filesystem integration, macOS/Xcode and signing.
 
 Handwriting recognition, typed text, lasso selection, audio recording, and
 collaboration are not currently included.
