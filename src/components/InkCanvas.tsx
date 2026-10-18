@@ -14,6 +14,7 @@ interface Props {
   width: number
   eraserRadius: number
   penOnly: boolean
+  fitMode: 'width' | 'page'
   fitToken: number
   zoomCommand: { factor: number; serial: number }
   onChange: (strokes: Stroke[]) => void
@@ -22,7 +23,7 @@ interface Props {
   onPenDetected: () => void
 }
 
-export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected }: Props) {
+export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
@@ -97,8 +98,9 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
     if (!element) return
     const fit = () => {
       if (active.current) return
-      const scale = Math.max(0.1, Math.min((element.clientWidth - 48) / page.width, (element.clientHeight - 48) / page.height, 1.4))
-      const next = { scale, x: (element.clientWidth - page.width * scale) / 2, y: (element.clientHeight - page.height * scale) / 2 }
+      const widthScale = (element.clientWidth - 32) / page.width
+      const scale = Math.max(0.1, Math.min(widthScale, fitMode === 'page' ? (element.clientHeight - 64) / page.height : 4))
+      const next = { scale, x: (element.clientWidth - page.width * scale) / 2, y: fitMode === 'page' ? Math.max(16, (element.clientHeight - page.height * scale) / 2 - 16) : 16 }
       viewRef.current = next
       setView(next)
       onZoomRef.current(Math.round(scale * 100))
@@ -107,7 +109,7 @@ export function InkCanvas({ page, tool, color, width, eraserRadius, penOnly, fit
     const observer = new ResizeObserver(fit)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [page.id, page.width, page.height, fitToken])
+  }, [page.id, page.width, page.height, fitMode, fitToken])
 
   useEffect(() => {
     const element = viewport.current

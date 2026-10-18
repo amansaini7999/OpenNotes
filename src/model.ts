@@ -71,6 +71,23 @@ export function createNotebook(title: string, color = coverColors[0], template: 
   return { id: crypto.randomUUID(), title, color, createdAt: now, updatedAt: now, pages: [createPage(template)] }
 }
 
+export function insertPagesAfter(notebook: Notebook, afterId: string, pages: NotePage[]): Notebook {
+  const index = notebook.pages.findIndex(page => page.id === afterId)
+  if (index < 0) throw new Error('The selected page no longer exists. Select another page and retry.')
+  if (!pages.length) throw new Error('The selected files did not contain any pages.')
+  if (notebook.pages.length + pages.length > 500) throw new Error('A notebook can contain up to 500 pages. Import fewer pages or use another notebook.')
+  const ids = new Set(notebook.pages.map(page => page.id))
+  for (const page of pages) {
+    if (ids.has(page.id)) throw new Error('Duplicate page identifier. Please retry the import.')
+    ids.add(page.id)
+  }
+  return {
+    ...notebook,
+    updatedAt: Date.now(),
+    pages: [...notebook.pages.slice(0, index + 1), ...pages, ...notebook.pages.slice(index + 1)],
+  }
+}
+
 export function emptyLibrary(): Library {
   return { format: 'opennotes', version: 1, notebooks: [] }
 }

@@ -87,6 +87,11 @@ export default function App() {
     })
   }
 
+  const saveIndicator = <span className={`save-state ${status === 'error' ? 'failed' : ''}`} role="status" data-testid="save-status">
+    {status === 'saving' || status === 'loading' ? <LoaderCircle size={14} className="spin" /> : status === 'error' ? <X size={14} /> : <Check size={14} />}
+    {status === 'loading' ? 'Opening your workspace' : status === 'saving' ? 'Saving on this device…' : status === 'error' ? 'Not saved — action needed' : 'Saved on this device'}
+  </span>
+
   return <div className={`app-shell ${active ? 'editing' : ''}`}>
     <aside className="sidebar">
       <a className="brand" href="#" onClick={event => { event.preventDefault(); setActiveId(null) }} aria-label="OpenNotes home">
@@ -106,17 +111,14 @@ export default function App() {
     </aside>
 
     <div className="main-column">
-      <div className="status-strip">
-        <span className={`save-state ${status === 'error' ? 'failed' : ''}`} role="status" data-testid="save-status">
-          {status === 'saving' || status === 'loading' ? <LoaderCircle size={14} className="spin" /> : status === 'error' ? <X size={14} /> : <Check size={14} />}
-          {status === 'loading' ? 'Opening your workspace' : status === 'saving' ? 'Saving on this device…' : status === 'error' ? 'Not saved — action needed' : 'Saved on this device'}
-        </span>
+      {!active && <div className="status-strip">
+        {saveIndicator}
         <div className="status-actions"><span className="connection-state">{!pwa.online ? <><WifiOff size={14} /> Offline</> : <><HardDrive size={14} /> Local-first</>}</span><InstallApp offlineReady={pwa.offlineReady} /></div>
-      </div>
+      </div>}
       {(storageError || error || pwa.registrationError) && <div className="message error" role="alert"><span>{storageError || error || pwa.registrationError}</span>{storageError ? <><button onClick={retry}>Retry save</button><button disabled={!library} onClick={() => library && exportBackup(library)}>Export backup</button></> : error ? <button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button> : <button onClick={() => setModal('help')}>Offline help</button>}</div>}
       {notice && <div className="message notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}
       {pwa.updateReady && <div className="message notice"><span>An update is ready. Finish writing and wait for “Saved on this device”, then close all OpenNotes tabs and reopen to update.</span></div>}
-      {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onBackup={() => exportBackup({ format: 'opennotes', version: 1, notebooks: [active] }, active.title)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onDelete={() => setModal('delete')} onError={showError} />
+      {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onBackup={() => exportBackup({ format: 'opennotes', version: 1, notebooks: [active] }, active.title)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onDelete={() => setModal('delete')} onError={showError} saveIndicator={saveIndicator} installAction={<InstallApp offlineReady={pwa.offlineReady} />} onHelp={() => setModal('help')} />
         : <NotebookLibrary notebooks={library.notebooks} onOpen={setActiveId} onCreate={() => { setName(''); setModal('create') }} onImport={() => fileInput.current?.click()} />
         : <div className="loading-state">{status === 'error' ? <><h1>Your notes need attention.</h1><p>We will not replace unreadable data with an empty library. Use the recovery message above.</p></> : <><LoaderCircle className="spin" size={30} /><p>Making room for your ideas…</p></>}</div>}
     </div>
@@ -151,7 +153,7 @@ export default function App() {
         <h3>Local does not mean backed up</h3><p>Clearing site data, removing the app, changing its address, or storage eviction can lose notes. Use “Back up everything” regularly. There is no automatic cloud sync. HTTP localhost on Windows and HTTPS on iPad are separate libraries.</p>
         <button className="secondary" onClick={() => void requestPersistence()}><ShieldCheck size={17} /> Request storage protection</button>
         <h3>Writing & shortcuts</h3><p>Use P for pen, H for highlighter, E for eraser and V to pan. The circular eraser removes only the ink under its tip; adjust Eraser size to change its radius. Ctrl/Cmd+Z undoes; Shift adds redo. Palm protection starts automatically on iPad and when a pen is first detected. One touch does nothing, two fingers pan/zoom, and the Pan tool explicitly enables one-finger navigation. Touches are ignored during and briefly after pen input to reduce palm interference. Browser palm classification is limited; verify on your iPad.</p>
-        <h3>Files & limits</h3><p>Import PDFs up to 30 MB / 50 pages. PDF pages are rasterized; exports preserve appearance, not selectable PDF text. Editable .opennotes backups use our own format, not .goodnotes. No handwriting recognition, audio recording, cloud sync, or Goodnotes-format import is included.</p>
+        <h3>Pages & files</h3><p>Notebook view starts page-first. Show pages opens thumbnails; Hide tools gives more writing space. Notebook options contains paper style, export, backup and help. Use Insert pages to add a blank page, PNG/JPEG/WebP images or PDF pages immediately after the current page. Existing ink stays unchanged. Images support up to 20 MB each; PDFs support up to 30 MB / 50 pages. A batch inserts up to 50 pages / 100 MB, within the 500-page notebook limit. Imported pages are rasterized; exports preserve appearance, not selectable PDF text. Editable backups use .opennotes format. Cloud sync, audio and handwriting recognition are not included.</p>
         <p className="quiet">OpenNotes is independent and is not affiliated with Goodnotes.</p>
       </div>
     </Dialog>}
