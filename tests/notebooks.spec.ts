@@ -117,6 +117,28 @@ test('notebook view prioritizes the page with on-demand panels and focus mode', 
   await draw(page)
 })
 
+test('tool visibility and page sidebar visibility are independent', async ({ page }) => {
+  await createNotebook(page, 'Independent panels')
+  const pages = page.getByRole('complementary', { name: 'Notebook pages' })
+  const tools = page.getByRole('toolbar', { name: 'Drawing tools' })
+  await page.getByRole('button', { name: 'Show pages', exact: true }).click()
+  await expect(pages).toBeVisible()
+  await page.getByRole('button', { name: 'Hide tools', exact: true }).click()
+  await expect(tools).toHaveCount(0)
+  await expect(pages).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Hide pages', exact: true })).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('button', { name: 'Show tools', exact: true }).click()
+  await expect(tools).toBeVisible()
+  await expect(pages).toBeVisible()
+  await page.getByRole('button', { name: 'Hide tools', exact: true }).click()
+  await page.getByRole('button', { name: 'Close pages', exact: true }).click()
+  await expect(pages).toHaveCount(0)
+  await expect(tools).toHaveCount(0)
+  await page.getByRole('button', { name: 'Show tools', exact: true }).click()
+  await expect(tools).toBeVisible()
+  await expect(pages).toHaveCount(0)
+})
+
 test('inserts image and ordered PDF pages after the current page, preserving existing ink offline', async ({ page, context }) => {
   await createNotebook(page, 'Mixed notebook')
   await draw(page)

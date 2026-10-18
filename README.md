@@ -31,7 +31,8 @@ No account, subscription, or cloud service required.
   dotted, ruled, or plain paper.
 - **Keep the page central** — open directly into a full-width writing space.
   Thumbnails, tool settings, paper style and document actions appear on demand;
-  hide writing tools for more space.
+  hide writing tools for more space. Tool visibility and the Pages panel toggle
+  independently.
 - **Bring your documents** — insert images and PDF pages into an existing
   notebook, annotate them, and export the mixed notebook as a PDF.
 - **Move around freely** — pan, zoom, fit a page to the screen, and navigate
