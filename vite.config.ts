@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export default defineConfig({
+  base: process.env.OPENNOTES_BASE_PATH || '/',
   preview: {
     https: process.env.OPENNOTES_HTTPS === '1' ? {
       cert: readFileSync(join('.local', 'tls.crt')),
