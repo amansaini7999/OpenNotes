@@ -127,7 +127,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onBackup, onPdf, on
       {saveIndicator}
       <button className="icon-button" aria-label={pagesOpen ? 'Hide pages' : 'Show pages'} aria-expanded={pagesOpen} aria-controls="notebook-pages" onClick={() => setPagesOpen(value => !value)}><PanelLeft size={20} /></button>
       <button className="icon-button" aria-label="Insert pages" onClick={() => setPanel('insert')}><FilePlus2 size={20} /></button>
-      <button className="icon-button" aria-label={toolsHidden ? 'Show tools' : 'Hide tools'} aria-pressed={toolsHidden} onClick={() => { setToolsHidden(value => !value); setPagesOpen(false) }}><PenLine size={19} /></button>
+      <button className="icon-button" aria-label={toolsHidden ? 'Show tools' : 'Hide tools'} aria-pressed={toolsHidden} onClick={() => setToolsHidden(value => !value)}><PenLine size={19} /></button>
       <button className="icon-button" aria-label="Notebook options" onClick={() => setPanel('document')}><MoreHorizontal size={22} /></button>
     </header>
     {!toolsHidden && <div className="ink-toolbar" role="toolbar" aria-label="Drawing tools">
