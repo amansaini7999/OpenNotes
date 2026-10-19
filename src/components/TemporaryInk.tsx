@@ -17,6 +17,7 @@ export function TemporaryInk({ width, height, strokes, onExpire }: Props) {
     const element = canvas.current
     const context = element?.getContext('2d')
     if (!element || !context) return
+    if (!strokes.length) { element.width = 1; element.height = 1; return }
     const ratio = Math.min(devicePixelRatio || 1, 2)
     element.width = Math.ceil(width * ratio)
     element.height = Math.ceil(height * ratio)

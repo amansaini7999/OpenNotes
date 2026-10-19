@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject, type PointerEvent as ReactPointerEvent } from 'react'
 import { drawStroke, loadImage, paintPage } from '../render'
 import { type NotePage, type Point, type Stroke, type Tool, type SourceAsset, type PlacedImage, type PenStyle } from '../model'
 import { eraseInk } from '../eraser'
@@ -7,6 +7,7 @@ import { horizontalPageTurn, type PageTurn } from '../navigation'
 import { ImageSelection } from './ImageSelection'
 import { TemporaryInk } from './TemporaryInk'
 import type { TemporaryStroke } from '../temporary'
+import type { PenActivity } from '../page-layout'
 
 type View = { x: number; y: number; scale: number }
 type Position = { x: number; y: number }
@@ -24,7 +25,7 @@ interface Props {
   fitToken: number
   zoomCommand: { factor: number; serial: number }
   onChange: (strokes: Stroke[]) => void
-  onZoom: (percent: number) => void
+  onZoom?: (percent: number) => void
   onError: (message: string) => void
   onPenDetected: () => void
   pageSwipes: boolean
@@ -35,9 +36,13 @@ interface Props {
   onImagesChange: (images: PlacedImage[]) => void
   penStyle?: PenStyle
   temporarySeconds?: number
+  readOnly?: boolean
+  sharedPen?: RefObject<PenActivity>
+  onExternalScroll?: (dx: number, dy: number) => void
+  renderScale?: number
 }
 
-export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange, penStyle = 'ballpoint', temporarySeconds = 5 }: Props) {
+export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange, penStyle = 'ballpoint', temporarySeconds = 5, readOnly = false, sharedPen, onExternalScroll, renderScale = 1 }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
@@ -60,6 +65,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   const gesture = useRef<Gesture | null>(null)
   const swipe = useRef<Swipe | null>(null)
   const pan = useRef<{ id: number; type: string; start: Position; view: View } | null>(null)
+  const externalPan = useRef<{ id: number; last: Position } | null>(null)
+  const externalMidpoint = useRef<Position | null>(null)
   const frame = useRef(0)
   const onZoomRef = useRef(onZoom)
   onZoomRef.current = onZoom
@@ -67,7 +74,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   const moveView = (next: View) => {
     viewRef.current = next
     setView(next)
-    onZoomRef.current(Math.round(next.scale * 100))
+    onZoomRef.current?.(Math.round(next.scale * 100))
   }
 
   const clearLive = () => {
@@ -115,7 +122,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       const next = { scale, x: (element.clientWidth - page.width * scale) / 2, y: fitMode === 'page' ? Math.max(16, (element.clientHeight - page.height * scale) / 2) : 16 }
       viewRef.current = next
       setView(next)
-      onZoomRef.current(Math.round(scale * 100))
+      onZoomRef.current?.(Math.round(scale * 100))
     }
     fit()
     const observer = new ResizeObserver(fit)
@@ -136,7 +143,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     }
     viewRef.current = next
     setView(next)
-    onZoomRef.current(Math.round(scale * 100))
+    onZoomRef.current?.(Math.round(scale * 100))
   }, [zoomCommand])
 
   useEffect(() => {
@@ -173,7 +180,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   useLayoutEffect(() => {
     strokesRef.current = page.strokes
     if (!committed.current || !live.current) return
-    const ratio = Math.min(devicePixelRatio || 1, 2)
+    const ratio = Math.max(0.5, Math.min((devicePixelRatio || 1) * renderScale, 2))
     for (const canvas of [committed.current, live.current]) {
       const width = Math.ceil(page.width * ratio), height = Math.ceil(page.height * ratio)
       if (canvas.width !== width || canvas.height !== height) {
@@ -186,7 +193,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     const rendered = imagePreview ? { ...page, images: page.images.map(image => image.id === imagePreview.id ? imagePreview : image) } : page
     paintPage(ctx, rendered, background?.source === page.background ? background?.image : undefined, inlineImages)
-  }, [page, background, inlineImages, imagePreview, onError])
+  }, [page, background, inlineImages, imagePreview, onError, renderScale])
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
   useLayoutEffect(() => {
@@ -219,6 +226,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   const dismissTouches = () => {
     swipe.current = null
     touches.current.clear()
+    externalPan.current = null
+    externalMidpoint.current = null
     gesture.current = null
     if (pan.current?.type === 'touch') pan.current = null
     if (active.current?.type === 'touch') { active.current = null; clearLive() }
@@ -237,9 +246,10 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (active.current?.type === 'pen' && event.pointerType !== 'pen')) return
-    if (event.pointerType === 'touch' && suppressTouch(active.current?.type === 'pen', lastPenAt.current, performance.now())) return
+    if (readOnly && onExternalScroll && event.pointerType === 'touch') return
+    if (!readOnly && event.pointerType === 'touch' && suppressTouch(active.current?.type === 'pen' || sharedPen?.current.id != null, Math.max(lastPenAt.current, sharedPen?.current.lastAt ?? -Infinity), performance.now())) return
     if (event.cancelable) event.preventDefault()
-    if (event.pointerType === 'pen') {
+    if (event.pointerType === 'pen' && !readOnly) {
       lastPenAt.current = performance.now()
       if (!detectedPen.current) { detectedPen.current = true; onPenDetected() }
       dismissTouches()
@@ -247,12 +257,18 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     if (event.pointerType === 'touch') {
-      if (!touches.current.size && pageSwipes && penOnly && tool !== 'hand' && page.width * viewRef.current.scale <= viewport.current!.clientWidth + 1) {
+      if (!touches.current.size && pageSwipes && (penOnly || readOnly) && tool !== 'hand' && page.width * viewRef.current.scale <= viewport.current!.clientWidth + 1) {
         const position = localPosition(event)
         swipe.current = { start: position, last: position, startedAt: performance.now(), fingers: 1, pinched: false, view: { ...viewRef.current } }
       }
-      touches.current.set(event.pointerId, localPosition(event))
+      touches.current.set(event.pointerId, onExternalScroll ? { x: event.clientX, y: event.clientY } : localPosition(event))
       if (touches.current.size >= 2) {
+        if (onExternalScroll) {
+          const [a, b] = [...touches.current.values()]
+          externalMidpoint.current = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+          if (active.current?.type === 'touch') { active.current = null; clearLive() }
+          return
+        }
         startGesture()
         if (swipe.current && touches.current.size === 2) {
           swipe.current.start = gesture.current!.midpoint
@@ -263,6 +279,14 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       }
     }
     if (active.current) return
+    if (onExternalScroll && (tool === 'hand' || readOnly || (event.pointerType === 'touch' && penOnly))) {
+      externalPan.current = { id: event.pointerId, last: { x: event.clientX, y: event.clientY } }
+      return
+    }
+    if (readOnly) {
+      if (!swipe.current) pan.current = { id: event.pointerId, type: event.pointerType, start: localPosition(event), view: { ...viewRef.current } }
+      return
+    }
     if (event.pointerType === 'touch' && penOnly && tool !== 'hand') return
     if (tool === 'hand') {
       pan.current = { id: event.pointerId, type: event.pointerType, start: localPosition(event), view: { ...viewRef.current } }
@@ -280,17 +304,19 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       lifetime: temporarySeconds * 1000,
       stroke: { id: crypto.randomUUID(), tool: tool === 'highlighter' ? 'highlighter' : 'pen', color, width, penStyle: tool === 'temporary' ? 'ballpoint' : penStyle, points: [pointFrom(event.nativeEvent)] },
     }
+    if (sharedPen && event.pointerType === 'pen') { sharedPen.current.id = event.pointerId; sharedPen.current.lastAt = performance.now() }
     lastPointer.current = event.nativeEvent
     clearLive()
     drawLive()
   }
 
   const pointerMove = (event: PointerEvent) => {
-    if (event.pointerType === 'pen') {
+    if (event.pointerType === 'pen' && !readOnly) {
       lastPenAt.current = performance.now()
+      if (sharedPen) sharedPen.current.lastAt = performance.now()
       dismissTouches()
     }
-    if (event.pointerType === 'touch' && suppressTouch(active.current?.type === 'pen', lastPenAt.current, performance.now())) {
+    if (!readOnly && event.pointerType === 'touch' && suppressTouch(active.current?.type === 'pen' || sharedPen?.current.id != null, Math.max(lastPenAt.current, sharedPen?.current.lastAt ?? -Infinity), performance.now())) {
       dismissTouches()
       return
     }
@@ -300,7 +326,14 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       return
     }
     if (touches.current.has(event.pointerId)) {
-      touches.current.set(event.pointerId, localPosition(event))
+      touches.current.set(event.pointerId, onExternalScroll ? { x: event.clientX, y: event.clientY } : localPosition(event))
+      if (onExternalScroll && touches.current.size >= 2) {
+        const [a, b] = [...touches.current.values()]
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        if (externalMidpoint.current) onExternalScroll(externalMidpoint.current.x - midpoint.x, externalMidpoint.current.y - midpoint.y)
+        externalMidpoint.current = midpoint
+        return
+      }
       if (swipe.current?.fingers === 1) swipe.current.last = localPosition(event)
       if (touches.current.size >= 2 && gesture.current) {
         const [a, b] = [...touches.current.values()], start = gesture.current
@@ -317,6 +350,12 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
         })
         return
       }
+    }
+    if (onExternalScroll && externalPan.current?.id === event.pointerId) {
+      const position = { x: event.clientX, y: event.clientY }, last = externalPan.current.last
+      onExternalScroll(last.x - position.x, last.y - position.y)
+      externalPan.current.last = position
+      return
     }
     if (pan.current?.id === event.pointerId) {
       const position = localPosition(event), start = pan.current
@@ -353,11 +392,20 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       }
     }
     touches.current.delete(event.pointerId)
+    if (externalPan.current?.id === event.pointerId) externalPan.current = null
+    if (touches.current.size < 2) externalMidpoint.current = null
+    if (onExternalScroll && touches.current.size === 1) {
+      const [id, last] = [...touches.current.entries()][0]
+      externalPan.current = { id, last }
+    }
     if (touches.current.size < 2) gesture.current = null
     if (pan.current?.id === event.pointerId) pan.current = null
+    if (event.pointerType === 'pen' && sharedPen?.current.id === event.pointerId) { sharedPen.current.id = null; sharedPen.current.lastAt = performance.now() }
     const stroke = active.current
     if (stroke?.id !== event.pointerId) return
-    if (stroke.type === 'pen') lastPenAt.current = performance.now()
+    if (stroke.type === 'pen') {
+      lastPenAt.current = performance.now()
+    }
     cancelAnimationFrame(frame.current)
     frame.current = 0
     active.current = null
@@ -389,6 +437,11 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
 
   inputHandlers.current = { move: pointerMove, finish: finishPointer }
   useEffect(() => {
+    if (!readOnly) return
+    if (active.current && lastPointer.current) inputHandlers.current?.finish(lastPointer.current, true)
+    setTemporary([])
+  }, [readOnly])
+  useEffect(() => {
     const outside = (event: PointerEvent) => !(event.target instanceof Node && viewport.current?.contains(event.target))
     const move = (event: PointerEvent) => {
       if (active.current && outside(event)) inputHandlers.current?.move(event)
@@ -402,6 +455,12 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     const interrupted = () => {
       const event = lastPointer.current
       if (event && active.current?.id === event.pointerId) inputHandlers.current?.finish(event, true)
+      pan.current = null
+      externalPan.current = null
+      externalMidpoint.current = null
+      touches.current.clear()
+      gesture.current = null
+      swipe.current = null
     }
     const visibility = () => { if (document.visibilityState === 'hidden') interrupted() }
     const rejectPalm = (event: TouchEvent) => {
@@ -428,14 +487,16 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   }, [])
 
   return <div
-    className={`ink-viewport tool-${tool}`}
+    className={`ink-viewport tool-${readOnly ? 'hand' : tool}`}
     data-page-turn={pageTurn ?? undefined}
+    style={readOnly && onExternalScroll ? { touchAction: 'pan-y', overflow: 'clip', overscrollBehavior: 'auto' } : undefined}
     ref={viewport}
     data-testid="ink-viewport"
     aria-label="Writing surface. Use a pen or mouse to draw; two fingers to pan and zoom."
     onPointerEnter={event => {
-      if (event.pointerType === 'pen') {
+      if (event.pointerType === 'pen' && !readOnly) {
         lastPenAt.current = performance.now()
+        if (sharedPen) sharedPen.current.lastAt = performance.now()
         dismissTouches()
       }
     }}
@@ -449,6 +510,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     onPointerCancel={event => finishPointer(event.nativeEvent, true)}
     onContextMenu={event => event.preventDefault()}
     onWheel={event => {
+      if (onExternalScroll) return
       if (event.ctrlKey || event.metaKey) {
         const previous = viewRef.current, position = localPosition(event)
         const scale = Math.max(0.1, Math.min(4, previous.scale * Math.exp(-event.deltaY * 0.005)))
@@ -460,9 +522,9 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   >
     <div className="paper" data-testid="paper" style={{ width: page.width, height: page.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
       <canvas ref={committed} data-testid="ink-canvas" aria-label="Notebook page" />
-      <TemporaryInk width={page.width} height={page.height} strokes={temporary} onExpire={ids => setTemporary(value => value.filter(entry => !ids.includes(entry.stroke.id)))} />
+      <TemporaryInk width={page.width} height={page.height} strokes={readOnly ? [] : temporary} onExpire={ids => setTemporary(value => value.filter(entry => !ids.includes(entry.stroke.id)))} />
       <canvas ref={live} aria-hidden="true" />
-      {tool === 'image' && <ImageSelection page={page} selectedId={selectedImageId} scale={view.scale} onSelect={onImageSelect} onChange={onImagesChange} onPreview={setImagePreview} />}
+      {!readOnly && tool === 'image' && <ImageSelection page={page} selectedId={selectedImageId} scale={view.scale} onSelect={onImageSelect} onChange={onImagesChange} onPreview={setImagePreview} />}
     </div>
   </div>
 }

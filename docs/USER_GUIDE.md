@@ -20,6 +20,15 @@
   When zoomed beyond the viewport width, two fingers pan instead.
 - Select **Pan** for explicit one-finger movement. Desktop navigation uses
   page buttons and thumbnails rather than swipe page turns.
+- **Page settings → Page navigation mode** switches between swipe pages and
+  continuous vertical scrolling. The choice is remembered on this device.
+  Vertical mode renders nearby pages only, and keeps each page's ink and undo
+  history separate. Use the top zoom/fit controls to change the column size.
+- **Read mode** hides tools and prevents drawing, image editing, imports,
+  undo, renaming and paper changes. Navigation, zoom and PDF export remain
+  available. In vertical read mode, fingers scroll naturally; choose **Edit**
+  to resume writing. On iPhone in edit mode, choose Pan or use two fingers
+  to scroll without drawing.
 - Palm protection is automatic on iPad and after pen detection. Touches during
   pen contact and for 700 ms afterward are ignored. Browser input policy is not
   equivalent to native hardware palm classification.
