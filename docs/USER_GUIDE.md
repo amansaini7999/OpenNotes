@@ -117,9 +117,9 @@ available.
 Import limits:
 
 - Images: 20 MB per file.
-- PDFs: 30 MB and 50 pages per file.
-- Batch: 50 inserted pages and 100 MB.
-- Notebook: 500 pages.
+- PDFs: 30 MB and **1,000 pages per file**.
+- Batch: 50 files, 1,000 inserted pages and 100 MB.
+- Notebook: 2,000 pages, leaving room for a book and additional notes.
 
 A failed batch does not insert partial results. Screen previews are optimized,
 but new imports retain their original PDF/image files separately. PDF export
@@ -127,6 +127,14 @@ uses the first notebook page's paper size for every page, fitting attachments
 proportionally with margins and no cropping. Source PDF page content remains
 vector-based, and source images retain their pixel resolution without extra
 JPEG recompression. Ink is exported as vectors.
+
+PDFs over 50 pages retain their original file and page geometry without
+pre-rendering every page. Pages and visible thumbnails are decoded on demand,
+with one active book decoder, one preview render at a time and a 12-preview
+cache. Leaving a page cancels unnecessary preview work; closing the notebook
+releases the decoder. This also works offline after app setup. Book previews
+are temporary, not duplicated into the editable backup. Loading/decoding errors
+are reported; the original PDF remains available for backup and vector export.
 
 JPEG orientation and WebP conversion use lossless PNG output; conversions above
 16 million pixels fail explicitly rather than silently reducing quality.

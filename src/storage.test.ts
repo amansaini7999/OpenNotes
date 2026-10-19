@@ -1,11 +1,34 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deleteDB, openDB } from 'idb'
-import { createNotebook, emptyLibrary } from './model'
+import { createNotebook, createPage, emptyLibrary } from './model'
 import { addFolder, deleteFolder, moveNotebook } from './folders'
 import { createStorage } from './storage'
 import { createSourceAsset, decodeBase64 } from './assets'
 
 describe('durable local storage', () => {
+  it('bulk-loads a 1,000-page book in notebook order and only rewrites the annotated page', async () => {
+    const name = crypto.randomUUID(), store = createStorage(name)
+    const note = createNotebook('Book')
+    note.pages = Array.from({ length: 1000 }, () => createPage('plain'))
+    const source = createSourceAsset(decodeBase64('JVBERi0xLjQ='), 'pdf', 1000)
+    note.sources = [source]
+    note.pages = note.pages.map((page, index) => ({ ...page, source: { assetId: source.id, pageIndex: index } }))
+    await store.save({ ...emptyLibrary(), notebooks: [note] })
+    await store.close()
+    const reopened = createStorage(name)
+    const loaded = await reopened.load()
+    expect(loaded.notebooks[0].pages.map(page => page.id)).toEqual(note.pages.map(page => page.id))
+    expect(loaded.notebooks[0].pages[999].source?.pageIndex).toBe(999)
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put')
+    try {
+      const annotated = { ...loaded, notebooks: loaded.notebooks.map(note => ({ ...note, pages: note.pages.map((page, index) => index === 999 ? { ...page, strokes: [{ id: crypto.randomUUID(), tool: 'pen' as const, color: '#253a43', width: 3, points: [{ x: 10, y: 10, pressure: 0.5 }] }] } : page) })) }
+      await reopened.save(annotated)
+      expect(put.mock.instances.filter(store => store instanceof IDBObjectStore && store.name === 'pages')).toHaveLength(1)
+      expect(put.mock.instances.filter(store => store instanceof IDBObjectStore && store.name === 'assets')).toHaveLength(0)
+    } finally { put.mockRestore() }
+    await reopened.close()
+    await deleteDB(name)
+  })
   it('upgrades version two and persists nested folders, moves and safe deletions across reopening', async () => {
     const name = crypto.randomUUID()
     const db = await openDB(name, 2, { upgrade(db) {

@@ -26,24 +26,30 @@ export function createStorage(name = 'opennotes-v1') {
     async load(): Promise<Library> {
       const db = await database
       const tx = db.transaction(['notebooks', 'pages', 'images', 'assets', 'folders'], 'readonly')
-      const folders = await tx.objectStore('folders').getAll()
-      const records = await tx.objectStore('notebooks').getAll()
-      const notebooks = await Promise.all(records.map(async ({ pageIds, sourceIds = [], ...record }) => ({
+      const [folders, records, savedPages, savedAssets, imageIds, savedImages] = await Promise.all([
+        tx.objectStore('folders').getAll(),
+        tx.objectStore('notebooks').getAll(),
+        tx.objectStore('pages').getAll(),
+        tx.objectStore('assets').getAll(),
+        tx.objectStore('images').getAllKeys(),
+        tx.objectStore('images').getAll(),
+      ])
+      const pagesById = new Map(savedPages.map(page => [page.id, page]))
+      const assetsById = new Map(savedAssets.map(asset => [asset.id, asset]))
+      const imagesById = new Map(imageIds.map((id, index) => [id, savedImages[index]]))
+      const notebooks = records.map(({ pageIds, sourceIds = [], ...record }) => ({
         ...record,
-        sources: await Promise.all(sourceIds.map(async id => {
-          const asset = await tx.objectStore('assets').get(id)
+        sources: sourceIds.map(id => {
+          const asset = assetsById.get(id)
           if (!asset) throw new Error('An original source file is missing. Do not clear site data; recover an editable backup.')
           return asset
-        })),
-        pages: await Promise.all(pageIds.map(async id => {
-          const [page, background] = await Promise.all([
-            tx.objectStore('pages').get(id),
-            tx.objectStore('images').get(id),
-          ])
+        }),
+        pages: pageIds.map(id => {
+          const page = pagesById.get(id), background = imagesById.get(id)
           if (!page) throw new Error('A saved page is missing. Do not clear site data; recover from an exported backup.')
           return { ...page, ...(background ? { background } : {}) }
-        })),
-      })))
+        }),
+      }))
       await tx.done
       const result = backupSchema.safeParse({ ...emptyLibrary(), folders, notebooks })
       if (!result.success) throw new Error('Saved data could not be read. Do not clear site data; recover an exported backup or contact support.')

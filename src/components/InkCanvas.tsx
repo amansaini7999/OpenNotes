@@ -8,6 +8,8 @@ import { ImageSelection } from './ImageSelection'
 import { TemporaryInk } from './TemporaryInk'
 import type { TemporaryStroke } from '../temporary'
 import type { PenActivity } from '../page-layout'
+import type { PdfPreviewLoader } from '../pdf-source'
+import { usePageBackground } from '../hooks/usePageBackground'
 
 type View = { x: number; y: number; scale: number }
 type Position = { x: number; y: number }
@@ -40,13 +42,15 @@ interface Props {
   sharedPen?: RefObject<PenActivity>
   onExternalScroll?: (dx: number, dy: number) => void
   renderScale?: number
+  loadPdfPreview: PdfPreviewLoader
 }
 
-export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange, penStyle = 'ballpoint', temporarySeconds = 2, readOnly = false, sharedPen, onExternalScroll, renderScale = 1 }: Props) {
+export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange, penStyle = 'ballpoint', temporarySeconds = 2, readOnly = false, sharedPen, onExternalScroll, renderScale = 1, loadPdfPreview }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
   const [background, setBackground] = useState<{ source: string; image: HTMLImageElement } | null>(null)
+  const pageBackground = usePageBackground(page, sources, loadPdfPreview, onError)
   const imageCache = useRef(new Map<string, HTMLImageElement>())
   const [inlineImages, setInlineImages] = useState<ReadonlyMap<string, HTMLImageElement>>(imageCache.current)
   const [imagePreview, setImagePreview] = useState<PlacedImage | null>(null)
@@ -154,8 +158,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
 
   useEffect(() => {
     let cancelled = false
-    if (page.background) {
-      const source = page.background
+    if (pageBackground) {
+      const source = pageBackground
       void loadImage(source).then(image => {
         if (!cancelled) setBackground({ source, image })
       }).catch((cause: unknown) => {
@@ -163,7 +167,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       })
     } else setBackground(null)
     return () => { cancelled = true }
-  }, [page.background, onError])
+  }, [pageBackground, onError])
 
   useEffect(() => {
     let cancelled = false
@@ -198,8 +202,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     if (!ctx) { onError('Canvas rendering is unavailable in this browser.'); return }
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     const rendered = imagePreview ? { ...page, images: page.images.map(image => image.id === imagePreview.id ? imagePreview : image) } : page
-    paintPage(ctx, rendered, background?.source === page.background ? background?.image : undefined, inlineImages)
-  }, [page, background, inlineImages, imagePreview, onError, renderScale])
+    paintPage(ctx, rendered, background?.source === pageBackground ? background?.image : undefined, inlineImages)
+  }, [page, pageBackground, background, inlineImages, imagePreview, onError, renderScale])
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
   useLayoutEffect(() => {
@@ -212,7 +216,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
 
   function paintCommitted(strokes: Stroke[]) {
     const ctx = committed.current?.getContext('2d')
-    if (ctx) paintPage(ctx, { ...page, strokes }, background?.source === page.background ? background?.image : undefined, inlineImages)
+    if (ctx) paintPage(ctx, { ...page, strokes }, background?.source === pageBackground ? background?.image : undefined, inlineImages)
   }
 
   const localPosition = (event: { clientX: number; clientY: number }): Position => {
@@ -533,6 +537,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       }
     }}
   >
+    {page.source && !page.background && (!pageBackground || background?.source !== pageBackground) && <span className="pdf-page-loading" data-testid="pdf-page-loading" role="status">Loading PDF page…</span>}
     <div className="paper" data-testid="paper" style={{ width: page.width, height: page.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
       <canvas ref={committed} data-testid="ink-canvas" aria-label="Notebook page" />
       <TemporaryInk width={page.width} height={page.height} strokes={readOnly ? [] : temporary} onExpire={ids => setTemporary(value => value.filter(entry => !ids.includes(entry.stroke.id)))} />

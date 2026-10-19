@@ -1,6 +1,8 @@
 import { createNotebook, createPage, safeFilename, type Library, type Notebook, type NotePage, type ImportedPages } from './model'
 import { loadImage } from './render'
 import { createSourceAsset } from './assets'
+import { EAGER_PDF_PAGES, MAX_INSERT_PAGES, MAX_PDF_PAGES } from './limits'
+import { openPdfTask } from './pdf-source'
 
 export function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -20,23 +22,13 @@ export async function importPdf(file: File, progress: (message: string) => void)
   return { ...createNotebook(file.name.replace(/\.pdf$/i, '') || 'Imported PDF', '#4b668c', 'plain'), ...imported }
 }
 
-export async function importPdfPages(file: File, progress: (message: string) => void, availablePages = 50): Promise<ImportedPages> {
+export async function importPdfPages(file: File, progress: (message: string) => void, availablePages = MAX_PDF_PAGES): Promise<ImportedPages> {
   if (file.size > 30 * 1024 * 1024) throw new Error('Choose a PDF smaller than 30 MB. Split larger files before importing.')
-  const pdfjs = await import('pdfjs-dist')
-  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
-  pdfjs.GlobalWorkerOptions.workerSrc = worker.default
   const bytes = new Uint8Array(await file.arrayBuffer())
-  const task = pdfjs.getDocument({
-    data: bytes.slice(),
-    cMapUrl: `${import.meta.env.BASE_URL}pdfjs/cmaps/`,
-    cMapPacked: true,
-    standardFontDataUrl: `${import.meta.env.BASE_URL}pdfjs/standard_fonts/`,
-    wasmUrl: `${import.meta.env.BASE_URL}pdfjs/wasm/`,
-    iccUrl: `${import.meta.env.BASE_URL}pdfjs/iccs/`,
-  })
+  const task = await openPdfTask(bytes.slice())
   try {
     const pdf = await task.promise
-    if (pdf.numPages > 50) throw new Error('This version supports PDF imports up to 50 pages. Split the PDF into smaller documents.')
+    if (pdf.numPages > MAX_PDF_PAGES) throw new Error(`PDF imports support up to ${MAX_PDF_PAGES.toLocaleString('en-US')} pages per file. Split the PDF into smaller documents.`)
     if (pdf.numPages > availablePages) throw new Error(`Not enough page capacity for this PDF. You can insert ${availablePages} more pages in this operation.`)
     const source = createSourceAsset(bytes, 'pdf', pdf.numPages)
     const pages: NotePage[] = []
@@ -46,20 +38,22 @@ export async function importPdfPages(file: File, progress: (message: string) => 
       const original = pdfPage.getViewport({ scale: 1 })
       const ratio = Math.min(1200 / original.width, 1600 / original.height)
       const viewport = pdfPage.getViewport({ scale: ratio })
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.ceil(viewport.width)
-      canvas.height = Math.ceil(viewport.height)
-      const context = canvas.getContext('2d')
-      if (!context) throw new Error('Your browser could not allocate a PDF canvas. Close other tabs and try again.')
-      await pdfPage.render({ canvasContext: context, canvas, viewport }).promise
       const page = createPage('plain')
       page.width = Math.round(viewport.width)
       page.height = Math.round(viewport.height)
-      page.background = canvas.toDataURL('image/jpeg', 0.88)
+      if (pdf.numPages <= EAGER_PDF_PAGES) {
+        const canvas = document.createElement('canvas')
+        try {
+          canvas.width = Math.ceil(viewport.width)
+          canvas.height = Math.ceil(viewport.height)
+          const context = canvas.getContext('2d')
+          if (!context) throw new Error('Your browser could not allocate a PDF canvas. Close other tabs and try again.')
+          await pdfPage.render({ canvasContext: context, canvas, viewport }).promise
+          page.background = canvas.toDataURL('image/jpeg', 0.88)
+        } finally { canvas.width = 0; canvas.height = 0 }
+      }
       page.source = { assetId: source.id, pageIndex: i - 1 }
       pages.push(page)
-      canvas.width = 0
-      canvas.height = 0
       pdfPage.cleanup()
     }
     return { pages, sources: [source] }
@@ -107,7 +101,7 @@ export async function importPageFiles(files: File[], availablePages: number, pro
   if (files.length > 50 || files.reduce((size, file) => size + file.size, 0) > 100 * 1024 * 1024) {
     throw new Error('Insert up to 50 files and 100 MB at a time.')
   }
-  const limit = Math.min(50, availablePages)
+  const limit = Math.min(MAX_INSERT_PAGES, availablePages)
   if (limit < files.length) throw new Error('Not enough page capacity. Select fewer files or use another notebook.')
   const pages: NotePage[] = []
   const sources: ImportedPages['sources'] = []

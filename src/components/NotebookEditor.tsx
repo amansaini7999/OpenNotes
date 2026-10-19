@@ -14,6 +14,9 @@ import { ScrollNotebook } from './ScrollNotebook'
 import { useNotebookNavigation } from '../hooks/useNotebookNavigation'
 import type { PenActivity } from '../page-layout'
 import { pastedImages, readClipboardImages } from '../clipboard'
+import { MAX_NOTEBOOK_PAGES } from '../limits'
+import { createPdfPreviewStore, type PdfPreviewLoader } from '../pdf-source'
+import { usePageBackground } from '../hooks/usePageBackground'
 
 interface Props {
   notebook: Notebook
@@ -36,6 +39,16 @@ const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[
 
 export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, saveIndicator }: Props) {
   const editor = useRef<HTMLElement>(null)
+  const pdfPreviews = useRef<ReturnType<typeof createPdfPreviewStore> | null>(null)
+  const loadPdfPreview: PdfPreviewLoader = useCallback((source, index, signal) => {
+    if (!pdfPreviews.current) pdfPreviews.current = createPdfPreviewStore()
+    return pdfPreviews.current.load(source, index, signal)
+  }, [])
+  useEffect(() => () => {
+    const store = pdfPreviews.current
+    pdfPreviews.current = null
+    void store?.close().catch((cause: unknown) => onError(cause instanceof Error ? cause.message : 'The PDF decoder could not close cleanly. Reload before reopening this book.'))
+  }, [onError])
   useEditorSelectionGuard(editor)
   const [tabletLayout] = useState(() => usesTabletLayout(navigator.userAgent, navigator.platform, navigator.maxTouchPoints, matchMedia('(pointer: coarse)').matches))
   const [pageId, setPageId] = useState(notebook.pages[0].id)
@@ -157,7 +170,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     setPanel(null)
     setImporting('Preparing pages…')
     try {
-      const imported = await importPageFiles(files, 500 - notebook.pages.length, setImporting)
+      const imported = await importPageFiles(files, MAX_NOTEBOOK_PAGES - notebook.pages.length, setImporting)
       onUpdate(note => insertPagesAfter(note, afterId, imported.pages, imported.sources))
       goToPage(imported.pages[0].id)
       setTool('pen')
@@ -239,7 +252,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     goToPage(next.id)
   }
 
-  const renderPage = (target: NotePage, renderScale = 1, scroll?: (dx: number, dy: number) => void) => <InkCanvas key={target.id} page={target} sources={notebook.sources} tool={tool} color={activeColor} width={activeWidth} penStyle={penStyle} temporarySeconds={temporarySeconds} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={scroll ? 'width' : fitMode} fitToken={fitToken} zoomCommand={scroll ? { factor: 1, serial: 0 } : zoomCommand} onChange={strokes => commitStrokes(target.id, strokes)} onZoom={scroll ? undefined : setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={!scroll && tabletLayout} pageTurn={!scroll && tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={images => commitImages(target.id, images)} readOnly={readOnly} sharedPen={sharedPen} onExternalScroll={scroll} renderScale={renderScale} />
+  const renderPage = (target: NotePage, renderScale = 1, scroll?: (dx: number, dy: number) => void) => <InkCanvas key={target.id} page={target} sources={notebook.sources} tool={tool} color={activeColor} width={activeWidth} penStyle={penStyle} temporarySeconds={temporarySeconds} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={scroll ? 'width' : fitMode} fitToken={fitToken} zoomCommand={scroll ? { factor: 1, serial: 0 } : zoomCommand} onChange={strokes => commitStrokes(target.id, strokes)} onZoom={scroll ? undefined : setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={!scroll && tabletLayout} pageTurn={!scroll && tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={images => commitImages(target.id, images)} readOnly={readOnly} sharedPen={sharedPen} onExternalScroll={scroll} renderScale={renderScale} loadPdfPreview={loadPdfPreview} />
   const zoomBy = (factor: number) => navigation === 'scroll' ? setScrollZoom(value => Math.max(0.1, Math.min(2, value * factor))) : setZoomCommand(value => ({ factor, serial: value.serial + 1 }))
   return <main className="editor" ref={editor} data-history-version={historyVersion} data-read-only={readOnly}>
     <header className="editor-header">
@@ -275,10 +288,10 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
         <div className="pages-heading"><span>PAGES</span><button className="icon-button" aria-label="Close pages" onClick={() => setPagesOpen(false)}><X size={17} /></button></div>
         <div className="page-list">
           {notebook.pages.map((value, index) => <button className={`page-tile ${page.id === value.id ? 'active' : ''}`} key={value.id} onClick={() => goToPage(value.id)} aria-label={`Page ${index + 1}`} aria-current={page.id === value.id ? 'page' : undefined}>
-            <PagePreview page={value} sources={notebook.sources} /><span>{String(index + 1).padStart(2, '0')}</span>
+            <PagePreview page={value} sources={notebook.sources} loadPdfPreview={loadPdfPreview} onError={onError} /><span>{String(index + 1).padStart(2, '0')}</span>
           </button>)}
         </div>
-        <button className="add-page" aria-label="Add page" onClick={addPage} disabled={readOnly || notebook.pages.length >= 500}><Plus size={16} /> New page</button>
+        <button className="add-page" aria-label="Add page" onClick={addPage} disabled={readOnly || notebook.pages.length >= MAX_NOTEBOOK_PAGES}><Plus size={16} /> New page</button>
       </aside>}
       <div className="canvas-workspace">
         {navigation === 'scroll'
@@ -299,9 +312,9 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     {importing && <div className="busy-overlay" role="status"><div><LoaderCircle className="spin" size={25} /><strong>{importing}</strong><span>Keep this window open.</span></div></div>}
     {panel === 'insert' && <Dialog title="Add to notebook" onClose={() => setPanel(null)}>
       <div className="document-actions add-content-actions">
-        <button className="secondary" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={20} /><span><strong>New page</strong><small>Blank paper after page {pageIndex + 1}</small></span></button>
+        <button className="secondary" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= MAX_NOTEBOOK_PAGES}><Plus size={20} /><span><strong>New page</strong><small>Blank paper after page {pageIndex + 1}</small></span></button>
         <button className="secondary" aria-label="Image" onClick={() => setPanel('image')} disabled={page.images.length >= 100}><ImagePlus size={20} /><span><strong>Image</strong><small>Place on this page</small></span></button>
-        <button className="secondary" aria-label="Import pages" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= 500}><FileUp size={20} /><span><strong>Import pages</strong><small>PDF or images after page {pageIndex + 1}</small></span></button>
+        <button className="secondary" aria-label="Import pages" onClick={() => importInput.current?.click()} disabled={notebook.pages.length >= MAX_NOTEBOOK_PAGES}><FileUp size={20} /><span><strong>Import pages</strong><small>PDF or images after page {pageIndex + 1}; up to 1,000 PDF pages</small></span></button>
       </div>
     </Dialog>}
     {panel === 'image' && <Dialog title="Insert image" onClose={() => setPanel(null)}>
@@ -338,7 +351,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
           chooseNavigation(value); setScrollTarget(target => ({ id: page.id, serial: target.serial + 1 })); setScrollZoom(1); setZoomCommand({ factor: 1, serial: 0 }); setPageTurn(null)
         }
       }}><option value="swipe">Swipe pages — notebook</option><option value="scroll">Scroll vertically — document</option></select></label>
-      <label className="field">Paper type<select aria-label="Paper template" disabled={readOnly || Boolean(page.background)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select></label>
+      <label className="field">Paper type<select aria-label="Paper template" disabled={readOnly || Boolean(page.background || page.source)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select></label>
       <div className="page-settings-row"><span>Page</span><div className="page-navigation">
         <button className="icon-button" aria-label="Previous page" disabled={pageIndex === 0} onClick={() => goToPage(notebook.pages[pageIndex - 1].id)}><ChevronLeft size={18} /></button>
         <span>Page {pageIndex + 1} of {notebook.pages.length}</span>
@@ -376,10 +389,20 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   </main>
 }
 
-function PagePreview({ page, sources }: { page: NotePage; sources: SourceAsset[] }) {
-  return <svg viewBox={`0 0 ${page.width} ${page.height}`} className={`page-preview ${page.template}`} aria-hidden="true">
+function PagePreview({ page, sources, loadPdfPreview, onError }: { page: NotePage; sources: SourceAsset[]; loadPdfPreview: PdfPreviewLoader; onError: (message: string) => void }) {
+  const element = useRef<SVGSVGElement>(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    if (page.background || !page.source || !element.current) return
+    const observer = new IntersectionObserver(entries => setVisible(entries.some(entry => entry.isIntersecting)), { rootMargin: '160px' })
+    observer.observe(element.current)
+    return () => observer.disconnect()
+  }, [page.background, page.source])
+  const background = usePageBackground(page, sources, loadPdfPreview, onError, visible)
+  return <svg ref={element} viewBox={`0 0 ${page.width} ${page.height}`} className={`page-preview ${page.template}`} aria-hidden="true">
     <rect width={page.width} height={page.height} fill="#fffefb" />
-    {page.background && <image href={page.background} width={page.width} height={page.height} />}
+    {background && <image href={background} width={page.width} height={page.height} />}
+    {page.source && !background && <text x={page.width / 2} y={page.height / 2} textAnchor="middle" fill="#74816d" fontSize={page.width / 10}>PDF {page.source.pageIndex + 1}</text>}
     {!page.background && page.template === 'ruled' && Array.from({ length: 28 }, (_, i) => <line key={i} x1={30} x2={page.width - 30} y1={65 + i * 30} y2={65 + i * 30} stroke="#dce1dc" strokeWidth="2" />)}
     {page.images.map(image => {
       const asset = sources.find(value => value.id === image.assetId)

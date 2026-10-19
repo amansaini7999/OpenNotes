@@ -30,11 +30,11 @@ describe('in-notebook page insertion', () => {
     const page = createPage()
     expect(() => insertPagesAfter(notebook, notebook.pages[0].id, [page, page])).toThrow('Duplicate')
   })
-  it('accepts exactly 500 pages but rejects 501 without mutating the source', () => {
+  it('accepts exactly 2,000 pages but rejects 2,001 without mutating the source', () => {
     const notebook = createNotebook('Capacity')
-    notebook.pages = Array.from({ length: 499 }, () => createPage())
-    expect(insertPagesAfter(notebook, notebook.pages[0].id, [createPage()]).pages).toHaveLength(500)
-    expect(() => insertPagesAfter(notebook, notebook.pages[0].id, [createPage(), createPage()])).toThrow('500 pages')
-    expect(notebook.pages).toHaveLength(499)
+    notebook.pages = Array.from({ length: 1999 }, () => createPage())
+    expect(insertPagesAfter(notebook, notebook.pages[0].id, [createPage()]).pages).toHaveLength(2000)
+    expect(() => insertPagesAfter(notebook, notebook.pages[0].id, [createPage(), createPage()])).toThrow('2,000 pages')
+    expect(notebook.pages).toHaveLength(1999)
   })
 })

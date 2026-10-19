@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { mergeFolderStructure } from './folders'
+import { MAX_NOTEBOOK_PAGES, MAX_PDF_PAGES } from './limits'
 
 export const PAGE_WIDTH = 794
 export const PAGE_HEIGHT = 1123
@@ -27,7 +28,7 @@ const sourceAssetSchema = z.object({
   kind: z.enum(['pdf', 'image']),
   mime: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']),
   data: z.string().min(4).max(45_000_000).regex(/^[A-Za-z0-9+/]+={0,2}$/),
-  pageCount: z.number().int().min(1).max(50),
+  pageCount: z.number().int().min(1).max(MAX_PDF_PAGES),
 }).refine(asset => asset.kind === 'pdf' ? asset.mime === 'application/pdf' : asset.mime !== 'application/pdf' && asset.pageCount === 1, 'Invalid source asset type.')
 const placedImageSchema = z.object({
   id: z.string().uuid(),
@@ -43,7 +44,7 @@ const pageSchema = z.object({
   width: z.number().min(100).max(2000),
   height: z.number().min(100).max(3000),
   background: backgroundSchema.optional(),
-  source: z.object({ assetId: z.string().uuid(), pageIndex: z.number().int().min(0).max(49) }).optional(),
+  source: z.object({ assetId: z.string().uuid(), pageIndex: z.number().int().min(0).max(MAX_PDF_PAGES - 1) }).optional(),
   strokes: z.array(strokeSchema),
   images: z.array(placedImageSchema).max(100).default([]),
 })
@@ -53,7 +54,7 @@ const notebookSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   createdAt: z.number().finite().nonnegative(),
   updatedAt: z.number().finite().nonnegative(),
-  pages: z.array(pageSchema).min(1).max(500),
+  pages: z.array(pageSchema).min(1).max(MAX_NOTEBOOK_PAGES),
   sources: z.array(sourceAssetSchema).default([]),
   backupConflict: z.object({ originalId: z.string().uuid(), contentHash: z.string().regex(/^[0-9a-f]{64}$/) }).optional(),
   backupAliases: z.array(z.string().uuid()).max(1000).optional(),
@@ -144,7 +145,7 @@ export function insertPagesAfter(notebook: Notebook, afterId: string, pages: Not
   const index = notebook.pages.findIndex(page => page.id === afterId)
   if (index < 0) throw new Error('The selected page no longer exists. Select another page and retry.')
   if (!pages.length) throw new Error('The selected files did not contain any pages.')
-  if (notebook.pages.length + pages.length > 500) throw new Error('A notebook can contain up to 500 pages. Import fewer pages or use another notebook.')
+  if (notebook.pages.length + pages.length > MAX_NOTEBOOK_PAGES) throw new Error(`A notebook can contain up to ${MAX_NOTEBOOK_PAGES.toLocaleString('en-US')} pages. Import fewer pages or use another notebook.`)
   const ids = new Set(notebook.pages.map(page => page.id))
   for (const page of pages) {
     if (ids.has(page.id)) throw new Error('Duplicate page identifier. Please retry the import.')
