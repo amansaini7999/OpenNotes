@@ -9,7 +9,7 @@ async function openNotebook(page: Page) {
   await pageSetting(page, 'Fit page')
 }
 
-async function ink(page: Page): Promise<{ points: { x: number; y: number; pressure: number }[] }[]> {
+async function ink(page: Page): Promise<{ tool: string; points: { x: number; y: number; pressure: number }[] }[]> {
   return page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('opennotes-v1')
@@ -17,7 +17,7 @@ async function ink(page: Page): Promise<{ points: { x: number; y: number; pressu
       request.onerror = () => reject(request.error)
     })
     try {
-      return await new Promise<{ points: { x: number; y: number; pressure: number }[] }[]>((resolve, reject) => {
+      return await new Promise<{ tool: string; points: { x: number; y: number; pressure: number }[] }[]>((resolve, reject) => {
         const request = database.transaction('pages').objectStore('pages').getAll()
         request.onsuccess = () => resolve(request.result.flatMap(page => page.strokes))
         request.onerror = () => reject(request.error)
@@ -130,6 +130,76 @@ test('Pencil hover does not suppress intentional finger tool selection', async (
     element.dispatchEvent(new PointerEvent('click', { bubbles: true, cancelable: true, pointerType: 'touch', detail: 1 }))
   })
   await expect(pan).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('fresh tool taps select immediately after Pencil release and delayed clicks cannot restore an older tool', async ({ page }) => {
+  await openNotebook(page)
+  await page.getByRole('button', { name: 'Pan', exact: true }).click()
+  await page.clock.install()
+  const viewport = page.getByTestId('ink-viewport')
+  await viewport.dispatchEvent('pointermove', { pointerType: 'pen', pointerId: 81, buttons: 1, pressure: 0.5 })
+  await viewport.dispatchEvent('pointerup', { pointerType: 'pen', pointerId: 81, buttons: 0, pressure: 0 })
+  const pen = page.getByRole('button', { name: 'Pen', exact: true })
+  const highlighter = page.getByRole('button', { name: 'Highlighter', exact: true })
+  const contact = async (button: typeof pen, id: number) => button.evaluate((element, id) => {
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch', button: 0, buttons: 1 }))
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch', button: 0 }))
+  }, id)
+  await contact(pen, 82)
+  await expect(pen).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 })
+  await contact(highlighter, 83)
+  await expect(highlighter).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 })
+  await pen.dispatchEvent('click', { pointerType: 'touch', detail: 1 })
+  await highlighter.dispatchEvent('click', { pointerType: 'touch', detail: 1 })
+  await expect(highlighter).toHaveAttribute('aria-pressed', 'true')
+  await expect(viewport).toHaveClass(/tool-highlighter/)
+})
+
+test('a toolbar contact that started during Pencil input stays rejected after Pencil release', async ({ page }) => {
+  await openNotebook(page)
+  await page.getByRole('button', { name: 'Pan', exact: true }).click()
+  const viewport = page.getByTestId('ink-viewport')
+  const highlighter = page.getByRole('button', { name: 'Highlighter', exact: true })
+  await viewport.dispatchEvent('pointermove', { pointerType: 'pen', pointerId: 91, buttons: 1, pressure: 0.5 })
+  await highlighter.dispatchEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 92, button: 0, buttons: 1 })
+  await viewport.dispatchEvent('pointerup', { pointerType: 'pen', pointerId: 91, buttons: 0, pressure: 0 })
+  await highlighter.dispatchEvent('pointerup', { bubbles: true, pointerType: 'touch', pointerId: 92, button: 0, buttons: 0 })
+  await highlighter.dispatchEvent('click', { bubbles: true, pointerType: 'touch', detail: 1 })
+  await expect(page.getByRole('button', { name: 'Pan', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('native rapid finger tool taps after a Pencil stroke produce highlighter ink without waiting', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Native simultaneous pen/touch injection uses CDP.')
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { value: 'MacIntel' })
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 })
+  })
+  await openNotebook(page)
+  await page.clock.install()
+  const paper = await page.getByTestId('paper').boundingBox()
+  if (!paper) throw new Error('Paper missing')
+  const session = await context.newCDPSession(page)
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+  const x = paper.x + paper.width * 0.2, y = paper.y + paper.height * 0.3
+  const stroke = async (dy: number) => {
+    await session.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y: y + dy, button: 'left', buttons: 1, pointerType: 'pen', force: 0.5, clickCount: 1 })
+    await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + 100, y: y + dy, buttons: 1, pointerType: 'pen', force: 0.5 })
+    await session.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + 100, y: y + dy, button: 'left', buttons: 0, pointerType: 'pen', force: 0, clickCount: 1 })
+  }
+  await stroke(0)
+  const tap = async (name: string, id: number) => {
+    const bounds = await page.getByRole('button', { name, exact: true }).boundingBox()
+    if (!bounds) throw new Error('Tool missing')
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id, x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  }
+  await tap('Pan', 1)
+  await tap('Pen', 2)
+  await tap('Highlighter', 3)
+  await stroke(35)
+  await expect.poll(async () => (await ink(page)).map(stroke => stroke.tool)).toEqual(['pen', 'highlighter'])
+  await expect(page.getByRole('button', { name: 'Highlighter', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await session.detach()
 })
 
 test('palm touches on the title and settings cannot interrupt an active Pencil stroke', async ({ page, context, browserName }) => {

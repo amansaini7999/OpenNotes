@@ -13,7 +13,7 @@ import { penPath } from '../ink'
 import { ScrollNotebook } from './ScrollNotebook'
 import { useNotebookNavigation } from '../hooks/useNotebookNavigation'
 import type { PenActivity } from '../page-layout'
-import { pastedImages, readClipboardImages } from '../clipboard'
+import { clipboardFormats, pastedImages, readClipboardImages } from '../clipboard'
 import { MAX_NOTEBOOK_PAGES } from '../limits'
 import { createPdfPreviewStore, type PdfPreviewLoader } from '../pdf-source'
 import { usePageBackground } from '../hooks/usePageBackground'
@@ -75,6 +75,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const [toolsHidden, setToolsHidden] = useState(false)
   const [panel, setPanel] = useState<'insert' | 'image' | 'paste' | 'tools' | 'page' | 'rename' | null>(null)
   const [pasteMessage, setPasteMessage] = useState('')
+  const pasteTarget = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (panel === 'paste') pasteTarget.current?.focus() }, [panel])
   const [renameDraft, setRenameDraft] = useState('')
   const [importing, setImporting] = useState('')
   const importInput = useRef<HTMLInputElement>(null)
@@ -130,8 +132,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     changePage(page.id, value => ({ ...value, ...next }))
     setHistoryVersion(value => value + 1)
   }
-  const actions = useRef({ undo, redo, readOnly })
-  actions.current = { undo, redo, readOnly }
+  const actions = useRef({ undo, redo, readOnly, pasteAllowed: panel === 'image' || panel === 'paste' })
+  actions.current = { undo, redo, readOnly, pasteAllowed: panel === 'image' || panel === 'paste' }
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -203,7 +205,9 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   inlineImporter.current = insertInlineImages
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (actions.current.readOnly || (event.target instanceof HTMLElement && (event.target.closest('input,textarea,[contenteditable="true"]') || document.querySelector('dialog[open]')))) return
+      if (event.defaultPrevented || actions.current.readOnly) return
+      if (event.target instanceof HTMLElement && event.target.closest('input,textarea,[contenteditable="true"]')) return
+      if (document.querySelector('dialog[open]') && !actions.current.pasteAllowed) return
       if (!event.clipboardData) return
       try {
         const files = pastedImages(event.clipboardData)
@@ -226,7 +230,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     try {
       if (!navigator.clipboard?.read) throw new Error('Clipboard image access is unavailable here.')
       const files = await readClipboardImages(await navigator.clipboard.read())
-      if (!files.length) throw new Error('The browser did not expose image data to the clipboard reader. A copied link or text is not an image.')
+      if (!files.length) throw new Error('The browser did not expose image data to the clipboard reader. This does not confirm whether the system clipboard contains an image.')
       await inlineImporter.current(files)
     } catch (cause: unknown) {
       setPasteMessage(`Paste failed: ${cause instanceof Error ? cause.message : 'Clipboard access was denied.'} Try the system Paste action in the field below, or Choose image.`)
@@ -274,7 +278,10 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     </header>
     {!toolsHidden && !readOnly && <div className="ink-toolbar" role="toolbar" aria-label="Drawing tools">
       <div className="tool-group">
-        {tools.map(item => <button key={item.id} className={`tool-button ${tool === item.id ? 'selected' : ''} ${item.id === 'image' || item.id === 'temporary' ? 'named-tool' : ''}`} aria-label={item.name} aria-pressed={tool === item.id} title={`${item.name} (${item.shortcut})${item.id === 'image' ? ': move or resize pasted images' : item.id === 'temporary' ? `: fading trail, ${temporarySeconds} seconds` : ''}`} onClick={() => setTool(item.id)}><item.icon size={21} />{item.id === 'image' && <span className="tool-label">Images</span>}{item.id === 'temporary' && <span className="tool-label">Laser · {temporarySeconds}s</span>}</button>)}
+        {tools.map(item => <button key={item.id} className={`tool-button ${tool === item.id ? 'selected' : ''} ${item.id === 'image' || item.id === 'temporary' ? 'named-tool' : ''}`} aria-label={item.name} aria-pressed={tool === item.id} title={`${item.name} (${item.shortcut})${item.id === 'image' ? ': move or resize pasted images' : item.id === 'temporary' ? `: fading trail, ${temporarySeconds} seconds` : ''}`}
+          onPointerDown={event => { if (event.button === 0) setTool(item.id) }}
+          onClick={event => { if (event.detail === 0) setTool(item.id) }}>
+          <item.icon size={21} />{item.id === 'image' && <span className="tool-label">Images</span>}{item.id === 'temporary' && <span className="tool-label">Laser · {temporarySeconds}s</span>}</button>)}
       </div>
       <button className="tool-button settings-button" aria-label="Tool settings" onClick={() => setPanel('tools')}><span className="current-ink" style={{ background: activeColor }} /><Settings2 size={17} /></button>
       <span className="toolbar-divider" />
@@ -328,18 +335,19 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     {panel === 'paste' && <Dialog title="Paste image" onClose={() => setPanel(null)}>
       {pasteMessage && <p role="alert">{pasteMessage}</p>}
       <p>Copy the image or screenshot itself. Touch and hold the field, then choose Paste from the system menu. With a keyboard, use Cmd/Ctrl+V.</p>
-      <label className="field">System paste area<textarea autoFocus aria-label="System paste area" placeholder="Touch and hold here to paste an image" onPaste={event => {
+      <div className="field"><span id="system-paste-label">System paste area</span><div ref={pasteTarget} className="system-paste-target" contentEditable="true" suppressContentEditableWarning role="textbox" aria-labelledby="system-paste-label" aria-multiline="true" tabIndex={0} inputMode="none" data-placeholder="Touch and hold here, then choose Paste" onPaste={event => {
         event.preventDefault()
         event.stopPropagation()
         try {
           const files = pastedImages(event.clipboardData)
-          if (!files.length) throw new Error('Only text or a link was supplied, not image pixels. Use Copy Image in the source app, or Choose image.')
+          if (!files.length) throw new Error(`This paste event supplied no supported image pixels. Formats received: ${clipboardFormats(event.clipboardData)}. Use Copy Image in the source app, or Choose image.`)
+          event.currentTarget.replaceChildren()
           setPasteMessage('')
           void inlineImporter.current(files)
         } catch (cause: unknown) {
           setPasteMessage(cause instanceof Error ? cause.message : 'The clipboard image could not be read. Choose image instead.')
         }
-      }} /></label>
+      }} onDrop={event => event.preventDefault()} /></div>
       <button className="secondary" onClick={() => inlineInput.current?.click()}><ImagePlus size={19} /> Choose image</button>
     </Dialog>}
     {panel === 'page' && <Dialog title="Page settings" onClose={() => setPanel(null)}>

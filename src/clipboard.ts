@@ -1,5 +1,10 @@
 const imageTypes = ['image/png', 'image/jpeg', 'image/webp']
 
+export function clipboardFormats(data: DataTransfer): string {
+  const formats = [...data.types, ...Array.from(data.files, file => file.type)]
+  return [...new Set(formats.filter(type => /^(?:image\/[a-z0-9.+-]+|text\/(?:plain|html|uri-list))$/i.test(type)))].slice(0, 8).join(', ') || 'none exposed'
+}
+
 function imageFile(blob: Blob): File {
   const extension = blob.type === 'image/jpeg' ? 'jpg' : blob.type.split('/')[1]
   return new File([blob], `pasted-image.${extension}`, { type: blob.type })

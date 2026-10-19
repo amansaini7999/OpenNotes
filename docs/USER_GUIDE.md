@@ -62,7 +62,7 @@ up to 1,000 folders, with names up to 100 characters.
   available. In vertical read mode, fingers scroll naturally; choose **Edit**
   to resume writing. On iPhone in edit mode, choose Pan or use two fingers
   to scroll without drawing.
-- Palm protection is automatic on iPad and after pen detection. Touches during
+- Palm protection is automatic on iPad and after pen detection. Canvas touches during
   pen contact and for 700 ms afterward are ignored. Browser input policy is not
   equivalent to native hardware palm classification.
 - iPhone starts with finger drawing enabled. Two-finger navigation does not
@@ -84,12 +84,15 @@ outside text fields, or use **Add content → Image → Paste from clipboard**.
 Clipboard access depends on browser permission and iPadOS support.
 **Choose image** provides a file-picker alternative without adding another page.
 If direct clipboard reading is denied or supplies no image, OpenNotes opens a
-**System paste area**. Touch and hold that field and use the system **Paste**
+**System paste area**. This is a rich-editable image target, not a plain-text
+input. Touch and hold that area and use the system **Paste**
 action, or press Cmd/Ctrl+V. This deliberate field permits the native paste menu
 without enabling text selection on the writing page. Copied image files and
 embedded PNG/JPEG/WebP images in clipboard HTML are supported. Links, selected
 text and remote image URLs are not image pixels and are not downloaded
 automatically; use **Copy Image** in the source app, or Choose image.
+If the browser still supplies no image pixels, the dialog reports the received
+format names (not clipboard contents), so an unsupported format can be identified.
 
 Pasted/inline images switch to **Select images** (`I`). Drag an image to move it,
 drag its corner to resize proportionally, or use its size/remove controls.
@@ -110,9 +113,11 @@ surface are blocked separately from native scrolling in read mode.
 This cannot certify every iPadOS system gesture; physical-device testing is
 still needed. Rename deliberately through **Page settings → Rename
 notebook**; text selection is allowed only in that explicit dialog. Finger/palm
-contacts cannot activate editor controls during pen contact or the short
-post-pen guard interval; intentional Pencil, mouse and keyboard actions remain
-available.
+contacts that begin during pen contact cannot activate editor controls, even
+if released after the Pencil. Fresh toolbar contacts after pen-up select tools
+immediately, without a recovery delay. The 700 ms post-pen guard still protects
+the writing surface. Intentional Pencil, mouse and keyboard actions remain
+available; delayed pointer clicks do not restore a previously selected tool.
 
 Import limits:
 
