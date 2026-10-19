@@ -44,7 +44,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const [pagesOpen, setPagesOpen] = useState(!tabletLayout)
   const [pageTurn, setPageTurn] = useState<PageTurn | null>(null)
   const [toolsHidden, setToolsHidden] = useState(false)
-  const [panel, setPanel] = useState<'insert' | 'image' | 'tools' | 'page' | null>(null)
+  const [panel, setPanel] = useState<'insert' | 'image' | 'tools' | 'page' | 'rename' | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const [importing, setImporting] = useState('')
   const importInput = useRef<HTMLInputElement>(null)
   const inlineInput = useRef<HTMLInputElement>(null)
@@ -194,10 +195,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     <header className="editor-header">
       <button className="icon-button" aria-label="Back to notebooks" onClick={onBack}><ArrowLeft size={20} /></button>
       <div className="editor-title">
-        <input aria-label="Notebook title" maxLength={100} value={notebook.title} onChange={e => {
-          const title = e.target.value
-          if (title.trim()) onUpdate(note => ({ ...note, title, updatedAt: Date.now() }))
-        }} />
+        <h1 className="notebook-name" data-testid="notebook-title">{notebook.title}</h1>
         <button className="page-position" aria-label="Show page overview" onClick={() => setPagesOpen(value => !value)}>Page {pageIndex + 1} of {notebook.pages.length}</button>
       </div>
       {saveIndicator}
@@ -259,6 +257,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       <button className="secondary" onClick={() => setPanel('insert')}><ArrowLeft size={16} /> Back</button>
     </Dialog>}
     {panel === 'page' && <Dialog title="Page settings" onClose={() => setPanel(null)}>
+      <button className="secondary" onClick={() => { setRenameDraft(notebook.title); setPanel('rename') }}><PenLine size={16} /> Rename notebook</button>
       <label className="field">Paper type<select aria-label="Paper template" disabled={Boolean(page.background)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select></label>
       <div className="page-settings-row"><span>Page</span><div className="page-navigation">
         <button className="icon-button" aria-label="Previous page" disabled={pageIndex === 0} onClick={() => setPageId(notebook.pages[pageIndex - 1].id)}><ChevronLeft size={18} /></button>
@@ -272,6 +271,18 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
         <button className="icon-button" aria-label="Fit page" onClick={() => fit('page')}><Maximize size={17} /></button>
         <button className="fit-width" aria-label="Fit width" onClick={() => fit('width')}>Width</button>
       </div></div>
+    </Dialog>}
+    {panel === 'rename' && <Dialog title="Rename notebook" onClose={() => setPanel(null)}>
+      <form onSubmit={event => {
+        event.preventDefault()
+        const title = renameDraft.trim()
+        if (!title) { onError('Enter a notebook name before saving.'); return }
+        onUpdate(note => ({ ...note, title, updatedAt: Date.now() }))
+        setPanel(null)
+      }}>
+        <label className="field">Notebook name<input aria-label="Notebook title" autoFocus required maxLength={100} value={renameDraft} onChange={event => setRenameDraft(event.target.value)} /></label>
+        <div className="dialog-actions"><button className="secondary" type="button" onClick={() => setPanel(null)}>Cancel</button><button className="primary" type="submit" disabled={!renameDraft.trim()}>Save name</button></div>
+      </form>
     </Dialog>}
     {panel === 'tools' && <Dialog title="Tool settings" onClose={() => setPanel(null)}>
       {tool !== 'eraser' && <div className="tool-group color-group" aria-label="Ink colors">{colors.map(value => <button key={value} className={`color-swatch ${value === color ? 'active' : ''}`} style={{ '--swatch': value } as React.CSSProperties} aria-label={`Ink color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} />)}</div>}

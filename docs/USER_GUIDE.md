@@ -49,8 +49,12 @@ The current page indicator stays in the header. **Export PDF** is in the noteboo
 header. In the library, swipe a notebook's name to reveal Delete, or use the
 name row's actions button. Deletion always requires confirmation.
 
-Non-editable editor controls do not allow browser text selection or native
-Copy/Look Up callouts. Notebook title fields still support normal text editing.
+The writing screen has no editable title field and does not allow native
+Copy/Look Up callouts. Rename deliberately through **Page settings → Rename
+notebook**; text selection is allowed only in that explicit dialog. Finger/palm
+contacts cannot activate editor controls during pen contact or the short
+post-pen guard interval; intentional Pencil, mouse and keyboard actions remain
+available.
 
 Import limits:
 

@@ -16,7 +16,7 @@ async function createNotebook(page: Page, title = 'Field notes', keepDefaults = 
   await page.getByRole('button', { name: 'Create a notebook', exact: true }).click()
   await page.getByRole('textbox', { name: 'Notebook name' }).fill(title)
   await page.getByRole('button', { name: 'Create notebook', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue(title)
+  await expect(page.getByTestId('notebook-title')).toHaveText(title)
   await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
   if (!keepDefaults && await page.getByRole('button', { name: 'Hide pages', exact: true }).count()) {
     await page.getByRole('button', { name: 'Hide pages', exact: true }).click()
@@ -158,7 +158,7 @@ test('inline images move and resize without new pages, support undo/redo, persis
   await page.getByRole('button', { name: 'Redo', exact: true }).click()
   await expect.poll(async () => (await storedImages(page)).length).toBe(1)
   await page.reload()
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Inline screenshot')
+  await expect(page.getByTestId('notebook-title')).toHaveText('Inline screenshot')
   expect((await storedImages(page)).length).toBe(1)
   await page.getByRole('button', { name: 'Select images', exact: true }).click()
   const exported = page.waitForEvent('download')
@@ -191,6 +191,8 @@ test('paste events place screenshots on the current page but do not intercept ti
   await paste(false)
   await expect.poll(async () => (await storedImages(page)).length).toBe(1)
   await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 1 of 1')
+  await page.getByRole('button', { name: 'Page settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Rename notebook', exact: true }).click()
   await paste(true)
   expect((await storedImages(page)).length).toBe(1)
 })
@@ -266,7 +268,7 @@ test('the app fills the visible viewport without document scrolling after height
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true)
   }
   await createNotebook(page, 'Viewport')
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toBeVisible()
+  await expect(page.getByTestId('notebook-title')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Page settings', exact: true })).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true)
 })
@@ -410,7 +412,7 @@ test('PDF exports align all pages and retain original image resolution and PDF v
   await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 2 of 4')
   await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
   await page.reload()
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Export fidelity')
+  await expect(page.getByTestId('notebook-title')).toHaveText('Export fidelity')
   const downloaded = page.waitForEvent('download')
   await documentAction(page, 'Export PDF')
   const exported = await PDFDocument.load(await downloadBytes(await downloaded))
@@ -443,7 +445,7 @@ test('creates, draws, undoes/redoes, changes pages, and persists after reload', 
   await draw(page)
   await expect.poll(() => strokeCount(page)).toBe(2)
   await page.reload()
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Field notes')
+  await expect(page.getByTestId('notebook-title')).toHaveText('Field notes')
   if (await page.getByRole('button', { name: 'Show pages', exact: true }).count()) {
     await page.getByRole('button', { name: 'Show pages', exact: true }).click()
   }
@@ -515,7 +517,7 @@ test('offline reload and writing work after service-worker activation', async ({
   })
   await context.setOffline(true)
   await page.reload()
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Offline notebook')
+  await expect(page.getByTestId('notebook-title')).toHaveText('Offline notebook')
   await draw(page)
   expect(await strokeCount(page)).toBe(2)
   await page.reload()
@@ -561,7 +563,7 @@ test('imports a PDF and retains its page background after reload', async ({ page
   await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({
     name: 'Reference.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
   })
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Reference')
+  await expect(page.getByTestId('notebook-title')).toHaveText('Reference')
   await expectImportedBackground(page)
   await draw(page)
   await page.reload()
@@ -674,7 +676,7 @@ test('swiping the notebook name reveals deletion without opening the notebook', 
   await page.mouse.move(bounds.x + bounds.width * 0.15, bounds.y + bounds.height / 2, { steps: 8 })
   await page.mouse.up()
   await expect(page.getByRole('button', { name: 'Delete Swipe deletion', exact: true })).toBeVisible()
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveCount(0)
+  await expect(page.getByTestId('notebook-title')).toHaveCount(0)
   await page.getByRole('button', { name: 'Delete Swipe deletion', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Delete this notebook?' })).toBeVisible()
 })
@@ -693,7 +695,7 @@ test('PDF import and export work on a fresh offline session, without external re
   await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({
     name: 'Offline.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
   })
-  await expect(page.getByRole('textbox', { name: 'Notebook title' })).toHaveValue('Offline')
+  await expect(page.getByTestId('notebook-title')).toHaveText('Offline')
   const download = page.waitForEvent('download')
   await documentAction(page, 'Export PDF')
   expect((await download).suggestedFilename()).toBe('Offline.pdf')
