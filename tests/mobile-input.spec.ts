@@ -119,6 +119,19 @@ test('renaming is explicit and cannot select or edit the title while writing', a
   await expect(page.locator('.editor-header input')).toHaveCount(0)
 })
 
+test('Pencil hover does not suppress intentional finger tool selection', async ({ page }) => {
+  await openNotebook(page)
+  const viewport = page.getByTestId('ink-viewport')
+  await viewport.dispatchEvent('pointermove', { pointerType: 'pen', pointerId: 71, buttons: 0, pressure: 0 })
+  const pan = page.getByRole('button', { name: 'Pan', exact: true })
+  await pan.evaluate(element => {
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 72, pointerType: 'touch', button: 0, buttons: 1 }))
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 72, pointerType: 'touch', button: 0 }))
+    element.dispatchEvent(new PointerEvent('click', { bubbles: true, cancelable: true, pointerType: 'touch', detail: 1 }))
+  })
+  await expect(pan).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('palm touches on the title and settings cannot interrupt an active Pencil stroke', async ({ page, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'Simultaneous native pen/touch injection uses CDP, not physical Apple Pencil hardware.')
   await page.addInitScript(() => {

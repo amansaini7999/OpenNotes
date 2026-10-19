@@ -19,6 +19,7 @@ export function ScrollNotebook({ pages, viewport, zoom, target, pen, onActive, r
   const heldPointers = useRef(new Set<number>())
   const active = useRef(target.id)
   const lastScroll = useRef({ top: 0, left: 0 })
+  const scrollFrame = useRef(0)
   const contentWidth = Math.max(33, size.width * zoom)
   const layouts = useMemo(() => scrollPageLayouts(pages, contentWidth), [pages, contentWidth])
   const visible = new Set(visibleScrollPages(layouts, top, size.height))
@@ -48,6 +49,7 @@ export function ScrollNotebook({ pages, viewport, zoom, target, pen, onActive, r
       window.removeEventListener('pointerup', released, true)
       window.removeEventListener('pointercancel', released, true)
       window.removeEventListener('blur', blurred)
+      cancelAnimationFrame(scrollFrame.current)
     }
   }, [viewport, pen])
   useLayoutEffect(() => {
@@ -80,10 +82,18 @@ export function ScrollNotebook({ pages, viewport, zoom, target, pen, onActive, r
       return
     }
     lastScroll.current = { top: element.scrollTop, left: element.scrollLeft }
-    setTop(element.scrollTop)
-    const position = element.scrollTop + Math.min(element.clientHeight * 0.3, 240)
-    const page = layouts.find(page => position < page.top + page.height) ?? layouts.at(-1)
-    if (page && page.id !== active.current) { active.current = page.id; callbacks.current(page.id) }
+    if (!scrollFrame.current) scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = 0
+      const top = element.scrollTop
+      setTop(previous => {
+        const before = visibleScrollPages(layouts, previous, element.clientHeight)
+        const after = visibleScrollPages(layouts, top, element.clientHeight)
+        return before.length === after.length && before.every((id, index) => id === after[index]) ? previous : top
+      })
+      const position = top + Math.min(element.clientHeight * 0.3, 240)
+      const page = layouts.find(page => position < page.top + page.height) ?? layouts.at(-1)
+      if (page && page.id !== active.current) { active.current = page.id; callbacks.current(page.id) }
+    })
   }}>
     <div className="scroll-pages" style={{ width: Math.max(size.width, contentWidth), height: (layouts.at(-1)?.top ?? 0) + (layouts.at(-1)?.height ?? 0) + 16 }}>
       {layouts.map((layout, index) => <section key={layout.id} className="scroll-page-frame" style={{ top: layout.top, left: Math.max(0, (size.width - contentWidth) / 2), width: contentWidth, height: layout.height }} aria-label={`Notebook page ${index + 1}`} data-page-id={layout.id}
