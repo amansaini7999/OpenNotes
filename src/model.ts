@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { mergeFolderStructure } from './folders'
 
 export const PAGE_WIDTH = 794
 export const PAGE_HEIGHT = 1123
@@ -56,14 +57,40 @@ const notebookSchema = z.object({
   sources: z.array(sourceAssetSchema).default([]),
   backupConflict: z.object({ originalId: z.string().uuid(), contentHash: z.string().regex(/^[0-9a-f]{64}$/) }).optional(),
   backupAliases: z.array(z.string().uuid()).max(1000).optional(),
+  folderId: z.string().uuid().optional(),
+})
+const folderSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(100),
+  parentId: z.string().uuid().optional(),
 })
 export const backupSchema = z.object({
   format: z.literal('opennotes'),
   version: z.literal(1),
   notebooks: z.array(notebookSchema),
+  folders: z.array(folderSchema).max(1000).default([]),
 }).superRefine((library, context) => {
+  const folders = new Map(library.folders.map(folder => [folder.id, folder]))
+  const siblings = new Set<string>()
+  for (const folder of library.folders) {
+    const key = JSON.stringify([folder.parentId, folder.name.normalize('NFKC').toLowerCase()])
+    if (siblings.has(key)) context.addIssue({ code: 'custom', message: 'Folders in the same location need different names.' })
+    siblings.add(key)
+    const seen = new Set([folder.id])
+    let parent = folder.parentId
+    while (parent) {
+      if (!folders.has(parent) || seen.has(parent)) {
+        context.addIssue({ code: 'custom', message: 'Folders cannot contain themselves or reference missing parents.' })
+        break
+      }
+      seen.add(parent)
+      parent = folders.get(parent)!.parentId
+    }
+  }
+  if (folders.size !== library.folders.length) context.addIssue({ code: 'custom', message: 'Duplicate folder identifier.' })
   const notebooks = new Set<string>(), pages = new Set<string>(), assets = new Set<string>()
   for (const notebook of library.notebooks) {
+    if (notebook.folderId && !folders.has(notebook.folderId)) context.addIssue({ code: 'custom', message: 'A notebook references a missing folder.' })
     if (notebooks.has(notebook.id)) context.addIssue({ code: 'custom', message: 'Duplicate notebook identifier.' })
     notebooks.add(notebook.id)
     const sources = new Map(notebook.sources.map(asset => [asset.id, asset]))
@@ -98,6 +125,7 @@ export type Stroke = z.infer<typeof strokeSchema>
 export type NotePage = z.infer<typeof pageSchema>
 export type Notebook = z.infer<typeof notebookSchema>
 export type Library = z.infer<typeof backupSchema>
+export type Folder = z.infer<typeof folderSchema>
 export type Template = NotePage['template']
 export type SourceAsset = z.infer<typeof sourceAssetSchema>
 export type ImportedPages = { pages: NotePage[]; sources: SourceAsset[] }
@@ -131,7 +159,7 @@ export function insertPagesAfter(notebook: Notebook, afterId: string, pages: Not
 }
 
 export function emptyLibrary(): Library {
-  return { format: 'opennotes', version: 1, notebooks: [] }
+  return { format: 'opennotes', version: 1, notebooks: [], folders: [] }
 }
 
 export function readBackup(text: string): Library {
@@ -146,30 +174,34 @@ export function readBackup(text: string): Library {
   return result.data
 }
 
-export function mergeBackup(library: Library, imported: Library): Library {
+export function copyNotebook(note: Notebook): Notebook {
   const now = Date.now()
+  const ids = new Map(note.sources.map(asset => [asset.id, crypto.randomUUID()]))
+  return {
+    ...note,
+    id: crypto.randomUUID(),
+    backupAliases: undefined,
+    backupConflict: undefined,
+    createdAt: now,
+    updatedAt: now,
+    sources: note.sources.map(asset => ({ ...asset, id: ids.get(asset.id)! })),
+    pages: note.pages.map(page => ({
+      ...page,
+      id: crypto.randomUUID(),
+      images: page.images.map(image => ({ ...image, id: crypto.randomUUID(), assetId: ids.get(image.assetId)! })),
+      ...(page.source ? { source: { ...page.source, assetId: ids.get(page.source.assetId)! } } : {}),
+    })),
+  }
+}
+
+export function mergeBackup(library: Library, imported: Library): Library {
+  const { folders, ids } = mergeFolderStructure(library.folders, imported.folders)
   return {
     ...library,
+    folders,
     notebooks: [
       ...library.notebooks,
-      ...imported.notebooks.map(note => {
-        const ids = new Map(note.sources.map(asset => [asset.id, crypto.randomUUID()]))
-        return {
-          ...note,
-          id: crypto.randomUUID(),
-          backupAliases: undefined,
-          backupConflict: undefined,
-          createdAt: now,
-          updatedAt: now,
-          sources: note.sources.map(asset => ({ ...asset, id: ids.get(asset.id)! })),
-          pages: note.pages.map(page => ({
-            ...page,
-            id: crypto.randomUUID(),
-            images: page.images.map(image => ({ ...image, id: crypto.randomUUID(), assetId: ids.get(image.assetId)! })),
-            ...(page.source ? { source: { ...page.source, assetId: ids.get(page.source.assetId)! } } : {}),
-          })),
-        }
-      }),
+      ...imported.notebooks.map(note => ({ ...copyNotebook(note), folderId: note.folderId ? ids.get(note.folderId) : undefined })),
     ],
   }
 }

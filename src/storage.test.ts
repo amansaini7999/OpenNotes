@@ -1,10 +1,45 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deleteDB, openDB } from 'idb'
 import { createNotebook, emptyLibrary } from './model'
+import { addFolder, deleteFolder, moveNotebook } from './folders'
 import { createStorage } from './storage'
 import { createSourceAsset, decodeBase64 } from './assets'
 
 describe('durable local storage', () => {
+  it('upgrades version two and persists nested folders, moves and safe deletions across reopening', async () => {
+    const name = crypto.randomUUID()
+    const db = await openDB(name, 2, { upgrade(db) {
+      for (const store of ['notebooks', 'pages', 'images', 'assets']) db.createObjectStore(store)
+    } })
+    const note = createNotebook('Before folders')
+    const asset = createSourceAsset(decodeBase64('JVBERi0xLjQ='), 'pdf')
+    note.sources = [asset]
+    note.pages[0].source = { assetId: asset.id, pageIndex: 0 }
+    const { pages, sources, ...metadata } = note
+    await db.put('notebooks', { ...metadata, pageIds: pages.map(page => page.id), sourceIds: sources.map(source => source.id) }, note.id)
+    await db.put('pages', pages[0], pages[0].id)
+    await db.put('assets', asset, asset.id)
+    db.close()
+    const store = createStorage(name)
+    const old = await store.load()
+    expect(old.folders).toEqual([])
+    expect(old.notebooks[0]).toEqual(note)
+    let next = addFolder(old, 'UPSC')
+    next = addFolder(next, 'History', next.folders[0].id)
+    next = moveNotebook(next, note.id, next.folders[1].id)
+    await store.save(next)
+    await store.close()
+    const reopened = createStorage(name)
+    const loaded = await reopened.load()
+    expect(loaded.folders).toHaveLength(2)
+    expect(loaded).toEqual({ ...next, folders: expect.arrayContaining(next.folders) })
+    const removed = deleteFolder(next, next.folders[1].id)
+    await reopened.save(removed)
+    expect(await reopened.load()).toEqual(removed)
+    expect(removed.notebooks[0].sources).toEqual([asset])
+    await reopened.close()
+    await deleteDB(name)
+  })
   it('upgrades a version-one library without losing notebooks or background images', async () => {
     const name = crypto.randomUUID()
     const old = await openDB(name, 1, { upgrade(db) {
@@ -47,7 +82,7 @@ describe('durable local storage', () => {
       if (this.name === 'pages') throw new DOMException('Quota exceeded', 'QuotaExceededError')
       return original.call(this, value, key)
     })
-    const library = { ...emptyLibrary(), notebooks: [createNotebook('Recoverable')] }
+    const library = addFolder({ ...emptyLibrary(), notebooks: [createNotebook('Recoverable')] }, 'Recoverable folder')
     try {
       await expect(store.save(library)).rejects.toThrow('Quota exceeded')
     } finally { put.mockRestore() }

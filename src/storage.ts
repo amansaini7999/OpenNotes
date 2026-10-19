@@ -1,20 +1,22 @@
 import { openDB, type DBSchema } from 'idb'
-import { backupSchema, emptyLibrary, type Library, type Notebook, type NotePage, type SourceAsset } from './model'
+import { backupSchema, emptyLibrary, type Folder, type Library, type Notebook, type NotePage, type SourceAsset } from './model'
 
 interface NotesDB extends DBSchema {
   notebooks: { key: string; value: Omit<Notebook, 'pages' | 'sources'> & { pageIds: string[]; sourceIds?: string[] } }
   pages: { key: string; value: Omit<NotePage, 'background'> }
   images: { key: string; value: string }
   assets: { key: string; value: SourceAsset }
+  folders: { key: string; value: Folder }
 }
 
 export function createStorage(name = 'opennotes-v1') {
-  const database = openDB<NotesDB>(name, 2, {
+  const database = openDB<NotesDB>(name, 3, {
     upgrade(db) {
       if (!db.objectStoreNames.contains('notebooks')) db.createObjectStore('notebooks')
       if (!db.objectStoreNames.contains('pages')) db.createObjectStore('pages')
       if (!db.objectStoreNames.contains('images')) db.createObjectStore('images')
       if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets')
+      if (!db.objectStoreNames.contains('folders')) db.createObjectStore('folders')
     },
     blocking(_current, _blocked, event) { (event.target as IDBDatabase).close() },
   })
@@ -23,7 +25,8 @@ export function createStorage(name = 'opennotes-v1') {
   return {
     async load(): Promise<Library> {
       const db = await database
-      const tx = db.transaction(['notebooks', 'pages', 'images', 'assets'], 'readonly')
+      const tx = db.transaction(['notebooks', 'pages', 'images', 'assets', 'folders'], 'readonly')
+      const folders = await tx.objectStore('folders').getAll()
       const records = await tx.objectStore('notebooks').getAll()
       const notebooks = await Promise.all(records.map(async ({ pageIds, sourceIds = [], ...record }) => ({
         ...record,
@@ -42,7 +45,7 @@ export function createStorage(name = 'opennotes-v1') {
         })),
       })))
       await tx.done
-      const result = backupSchema.safeParse({ ...emptyLibrary(), notebooks })
+      const result = backupSchema.safeParse({ ...emptyLibrary(), folders, notebooks })
       if (!result.success) throw new Error('Saved data could not be read. Do not clear site data; recover an exported backup or contact support.')
       persisted = result.data
       return result.data
@@ -51,9 +54,16 @@ export function createStorage(name = 'opennotes-v1') {
       // Callers use immutable updates. Only changed page records are written; PDF images stay separate.
       const write = queue.then(async () => {
         const db = await database
-        const tx = db.transaction(['notebooks', 'pages', 'images', 'assets'], 'readwrite', { durability: 'strict' })
+        const tx = db.transaction(['notebooks', 'pages', 'images', 'assets', 'folders'], 'readwrite', { durability: 'strict' })
         const operations: Promise<unknown>[] = []
         try {
+        const folderIds = new Set(library.folders.map(folder => folder.id))
+        for (const old of persisted.folders) {
+          if (!folderIds.has(old.id)) operations.push(tx.objectStore('folders').delete(old.id))
+        }
+        for (const folder of library.folders) {
+          if (persisted.folders.find(value => value.id === folder.id) !== folder) operations.push(tx.objectStore('folders').put(folder, folder.id))
+        }
         const remaining = new Set(library.notebooks.map(note => note.id))
         for (const old of persisted.notebooks) {
           if (remaining.has(old.id)) continue

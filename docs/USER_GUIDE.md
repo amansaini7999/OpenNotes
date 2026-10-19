@@ -2,6 +2,28 @@
 
 [OpenNotes](../README.md) · [Installation](./INSTALLATION.md)
 
+## Organizing notebooks
+
+Use **New folder** in the library to organize subjects, books or research areas.
+Open a folder and create another folder to build a hierarchy, such as
+**MBBS / Anatomy** or **UPSC / History**. New notebooks and imported PDFs go
+into the current folder. The breadcrumb path navigates back up; **All notebooks**
+shows every notebook, including those inside folders.
+
+Use a folder's actions button or **Folder settings** to rename or move it.
+Notebook name-row actions include **Move** alongside Delete; moving keeps the
+same notebook, pages and ink rather than creating a copy.
+Deleting a folder requires confirmation and moves its notebooks and immediate
+subfolders up one level. It never deletes notebooks. Resolve conflicting
+subfolder names at the destination before deleting.
+
+Folders are saved on this device and included in **Back up everything**.
+Restore reuses matching folder IDs, or matching names under the same parent,
+without duplicating the hierarchy. Existing local folder names/locations and
+notebook locations are preserved; new/restored missing notebooks use the backup
+location. Old backups without folders remain supported. A workspace supports
+up to 1,000 folders, with names up to 100 characters.
+
 ## Writing and navigation
 
 - On iPad, notebooks open in a page-first, fit-width layout with thumbnails

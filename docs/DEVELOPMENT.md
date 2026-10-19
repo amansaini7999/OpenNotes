@@ -44,8 +44,11 @@ separate from storage, file processing, and browser lifecycle effects.
 | [tests/](../tests/) | Browser workflows |
 
 Only changed page records are written; page previews and original source assets
-are stored separately. Database version 2 upgrades existing libraries without
-clearing notes. Each imported PDF is stored once and referenced by its pages.
+are stored separately. Database version 3 adds a folder metadata store and
+upgrades version 1/2 libraries without clearing notes or original assets.
+Folders and notebook moves commit in the same transaction. Backups default
+missing folder metadata to an empty hierarchy, preserving old backup support.
+Each imported PDF is stored once and referenced by its pages.
 The current startup path still loads all notebook data, so lazy loading remains
 an area for improvement with large libraries.
 
