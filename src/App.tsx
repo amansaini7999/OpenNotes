@@ -4,7 +4,7 @@ import { coverColors, createNotebook, mergeBackup, readBackup, type Library, typ
 import { exportBackup, exportPdf, importPdf } from './files'
 import { useLibrary } from './hooks/useLibrary'
 import { usePwa } from './hooks/usePwa'
-import { NotebookLibrary } from './components/NotebookLibrary'
+import { FolderLibrary } from './components/FolderLibrary'
 import { NotebookEditor } from './components/NotebookEditor'
 import { Dialog } from './components/Dialog'
 import { InstallApp } from './components/InstallApp'
@@ -20,6 +20,7 @@ export default function App() {
   const persistence = usePersistence(Boolean(library?.notebooks.length))
   const pwa = usePwa()
   const [activeId, setActiveId] = useState<string | null>(() => new URLSearchParams(location.hash.slice(1)).get('notebook'))
+  const [folderId, setFolderId] = useState<string>()
   const [modal, setModal] = useState<Modal>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -31,6 +32,7 @@ export default function App() {
   const [template, setTemplate] = useState<Template>('dotted')
   const fileInput = useRef<HTMLInputElement>(null)
   const active = library?.notebooks.find(note => note.id === activeId)
+  const selectedFolderId = library?.folders.some(folder => folder.id === folderId) ? folderId : undefined
   const deleting = library?.notebooks.find(note => note.id === deletingId)
   const showError = useCallback((message: string) => setError(message), [])
 
@@ -64,6 +66,7 @@ export default function App() {
     await runTask('Reading file…', async () => {
       if (file.name.toLowerCase().endsWith('.pdf')) {
         const note = await importPdf(file, setBusy)
+        note.folderId = selectedFolderId
         update(value => ({ ...value, notebooks: [...value.notebooks, note] }))
         setActiveId(note.id)
       } else {
@@ -79,6 +82,7 @@ export default function App() {
     event.preventDefault()
     if (!name.trim()) return
     const note = createNotebook(name.trim(), cover, template)
+    note.folderId = selectedFolderId
     update(value => ({ ...value, notebooks: [...value.notebooks, note] }))
     setModal(null)
     setName('')
@@ -109,12 +113,12 @@ export default function App() {
 
   return <div className={`app-shell ${active ? 'editing' : ''}`}>
     <aside className="sidebar">
-      <a className="brand" href="#" onClick={event => { event.preventDefault(); setActiveId(null) }} aria-label="OpenNotes home">
+      <a className="brand" href="#" onClick={event => { event.preventDefault(); setActiveId(null); setFolderId(undefined) }} aria-label="OpenNotes home">
         <span className="brand-mark"><BookOpen size={23} strokeWidth={1.7} /></span><span>Open<span className="brand-light">Notes</span><small>A SPACE FOR YOUR MIND</small></span>
       </a>
       <button className="sidebar-create" aria-label="New notebook" onClick={() => { setName(''); setModal('create') }} disabled={!library || Boolean(busy)}><Plus size={18} /><span>New notebook</span><span className="key-hint" aria-hidden="true">+</span></button>
       <nav aria-label="Main navigation"><span className="nav-label">WORKSPACE</span>
-        <button className={`nav-item ${!active ? 'active' : ''}`} onClick={() => setActiveId(null)}><BookOpen size={18} /> All notebooks <span className="nav-count">{library?.notebooks.length ?? 0}</span></button>
+        <button className={`nav-item ${!active && !selectedFolderId ? 'active' : ''}`} onClick={() => { setActiveId(null); setFolderId(undefined) }}><BookOpen size={18} /> All notebooks <span className="nav-count">{library?.notebooks.length ?? 0}</span></button>
         <button className="nav-item" onClick={() => fileInput.current?.click()} disabled={!library || Boolean(busy)}><FileUp size={18} /> Import PDF / backup</button>
         <button className="nav-item" onClick={() => library && exportBackup(library)} disabled={!library}><ArrowDownToLine size={18} /> Back up everything</button>
       </nav>
@@ -133,7 +137,7 @@ export default function App() {
       {notice && <div className="message notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}
       {pwa.updateReady && <div className="message notice"><span>An update is ready. Finish writing and wait for “Saved on this device”, then close all OpenNotes tabs and reopen to update.</span></div>}
       {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onError={showError} saveIndicator={saveIndicator} />
-        : <NotebookLibrary notebooks={library.notebooks} onOpen={setActiveId} onCreate={() => { setName(''); setModal('create') }} onImport={() => fileInput.current?.click()} onDelete={id => { setDeletingId(id); setModal('delete') }} />
+        : <FolderLibrary library={library} folderId={selectedFolderId} onFolder={setFolderId} onUpdate={update} onError={showError} onOpen={setActiveId} onCreate={() => { setName(''); setModal('create') }} onImport={() => fileInput.current?.click()} onDelete={id => { setDeletingId(id); setModal('delete') }} />
         : <div className="loading-state">{status === 'error' ? <><h1>Your notes need attention.</h1><p>We will not replace unreadable data with an empty library. Use the recovery message above.</p></> : <><LoaderCircle className="spin" size={30} /><p>Making room for your ideas…</p></>}</div>}
     </div>
     <input ref={fileInput} type="file" accept=".pdf,.opennotes,application/pdf,application/json" aria-label="Import PDF or OpenNotes backup" className="visually-hidden" onChange={event => {
@@ -180,6 +184,7 @@ export default function App() {
         {restore && <Dialog title="Restore backup" onClose={() => setRestore(null)}>
           <p>Stable notebook IDs and SHA-256 content checks prevent duplicate imports.</p>
           <ul className="restore-summary">
+            <li>Folders in backup: {restore.imported.folders.length}</li>
             <li>New notebooks: {restore.plan.added}</li>
             <li>Updates from newer backups: {restore.plan.updated}</li>
             <li>Already present: {restore.plan.unchanged}</li>

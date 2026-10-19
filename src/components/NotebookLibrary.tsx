@@ -1,5 +1,5 @@
 import { BookOpen, MoreHorizontal, Trash2, FileUp, FolderOpen, Plus, Search, Sparkles, ArrowUpRight } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import type { Notebook } from '../model'
 
 interface Props {
@@ -8,9 +8,13 @@ interface Props {
   onCreate: () => void
   onImport: () => void
   onDelete: (id: string) => void
+  onMove: (id: string) => void
+  folders: ReactNode
+  heading: string
+  nested: boolean
 }
 
-export function NotebookLibrary({ notebooks, onOpen, onCreate, onImport, onDelete }: Props) {
+export function NotebookLibrary({ notebooks, onOpen, onCreate, onImport, onDelete, onMove, folders, heading, nested }: Props) {
   const [search, setSearch] = useState('')
   const filtered = [...notebooks].filter(note => note.title.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -20,7 +24,7 @@ export function NotebookLibrary({ notebooks, onOpen, onCreate, onImport, onDelet
       <span className="eyebrow">YOUR PERSONAL WORKSPACE</span>
       <span className="quiet"><span className="small-dot" /> Private by default</span>
     </header>
-    <section className="welcome">
+    {!nested && <section className="welcome">
       <div className="welcome-copy">
         <span className="welcome-kicker"><Sparkles size={15} /> A LITTLE ROOM TO THINK</span>
         <h1>Big ideas.<br /><em>Open possibilities.</em></h1>
@@ -34,18 +38,19 @@ export function NotebookLibrary({ notebooks, onOpen, onCreate, onImport, onDelet
         <div className="art-pencil" />
         <span className="art-spark">+</span>
       </div>
-    </section>
+    </section>}
 
+    {folders}
     <section className="notebooks-section" aria-labelledby="notebooks-heading">
       <div className="section-heading">
-        <div><h2 id="notebooks-heading">Your notebooks <span className="count">{notebooks.length}</span></h2><p>A fresh page is always a good place to start.</p></div>
+        <div><h2 id="notebooks-heading">{heading} <span className="count">{notebooks.length}</span></h2><p>A fresh page is always a good place to start.</p></div>
         <div className="library-actions">
           <label className="search"><Search size={16} /><input aria-label="Search notebooks" placeholder="Find a notebook..." value={search} onChange={e => setSearch(e.target.value)} /></label>
           <button className="secondary" onClick={onImport}><FileUp size={17} /><span>Import</span></button>
         </div>
       </div>
       <div className="notebook-grid">
-        {filtered.map(note => <NotebookCard key={note.id} note={note} onOpen={onOpen} onDelete={onDelete} />)}
+        {filtered.map(note => <NotebookCard key={note.id} note={note} onOpen={onOpen} onDelete={onDelete} onMove={onMove} />)}
         {!search && <button className="new-notebook-card" onClick={onCreate}><span><Plus size={27} strokeWidth={1.5} /></span><strong>Something new starts here</strong><small>Create a notebook</small></button>}
         {search && !filtered.length && <div className="empty-search"><FolderOpen size={32} /><h3>No matching notebooks</h3><p>Try a different title.</p></div>}
       </div>
@@ -54,7 +59,7 @@ export function NotebookLibrary({ notebooks, onOpen, onCreate, onImport, onDelet
   </main>
 }
 
-function NotebookCard({ note, onOpen, onDelete }: { note: Notebook; onOpen: Props['onOpen']; onDelete: Props['onDelete'] }) {
+function NotebookCard({ note, onOpen, onDelete, onMove }: { note: Notebook; onOpen: Props['onOpen']; onDelete: Props['onDelete']; onMove: Props['onMove'] }) {
   const [actionsOpen, setActionsOpen] = useState(false)
   const start = useRef<{ x: number; y: number } | null>(null)
   const suppressClick = useRef(false)
@@ -83,7 +88,10 @@ function NotebookCard({ note, onOpen, onDelete }: { note: Notebook; onOpen: Prop
         }
       }}>
       <div className="book-info"><strong>{note.title}</strong><button className="icon-button" aria-label={`Notebook actions for ${note.title}`} aria-expanded={actionsOpen} onClick={() => setActionsOpen(value => !value)}><MoreHorizontal size={17} /></button></div>
-      {actionsOpen && <button className="icon-button danger notebook-delete" aria-label={`Delete ${note.title}`} onClick={() => onDelete(note.id)}><Trash2 size={17} /></button>}
+      {actionsOpen && <div className="notebook-card-actions">
+        <button className="icon-button" aria-label={`Move ${note.title}`} onClick={() => onMove(note.id)}><FolderOpen size={17} /></button>
+        <button className="icon-button danger" aria-label={`Delete ${note.title}`} onClick={() => onDelete(note.id)}><Trash2 size={17} /></button>
+      </div>}
     </div>
     <p>{note.pages.length} {note.pages.length === 1 ? 'page' : 'pages'}<span>·</span>{new Date(note.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
   </article>
