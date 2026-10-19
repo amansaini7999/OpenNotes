@@ -1,0 +1,107 @@
+name: Bug report
+description: Report a reproducible OpenNotes problem using non-sensitive data.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve OpenNotes. Do not attach private notebooks,
+        personal records, credentials or copyrighted books without permission.
+        Prefer a small synthetic example and redact screenshots.
+        Report security vulnerabilities privately:
+        https://github.com/amansaini7999/OpenNotes/security/advisories/new
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and any visible error message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the selected tool and page navigation mode when relevant.
+      placeholder: |
+        1. Open a notebook...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and operating system
+      placeholder: "e.g. iPad Air, iPadOS version; or Windows laptop, Windows version"
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      description: For an installed app, also identify the browser used to install it if known.
+      placeholder: "e.g. Safari 26, Chrome 140, or version unknown"
+    validations:
+      required: true
+  - type: dropdown
+    id: app_mode
+    attributes:
+      label: How are you opening OpenNotes?
+      options:
+        - Browser tab
+        - Installed web app / Home Screen
+        - Local development or production preview
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: App URL or commit
+      description: Use the site URL or Git commit; remove any private query parameters or notebook identifiers.
+      placeholder: "https://amansaini7999.github.io/OpenNotes/"
+  - type: dropdown
+    id: input_method
+    attributes:
+      label: Input method
+      multiple: true
+      options:
+        - Apple Pencil or another stylus
+        - Finger / touch
+        - Mouse / trackpad
+        - Keyboard / clipboard
+        - Not input-related
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options:
+        - Online
+        - Offline
+        - Both
+        - Not sure
+  - type: textarea
+    id: save_status
+    attributes:
+      label: Save status and data impact
+      description: What did the save indicator say? Are notes missing, duplicated or unsaved? Do not clear site data.
+      placeholder: "e.g. Saved on this device; notebook still opens; no data lost"
+    validations:
+      required: true
+  - type: textarea
+    id: document
+    attributes:
+      label: PDF or image details
+      description: If relevant, give file type, size/page count, and whether import, display, annotation or export fails. Use a synthetic sample, not a private document.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots, recordings or redacted diagnostics
+      description: Optional. State whether the issue occurs on physical hardware, emulation or both. Remove private content before uploading.

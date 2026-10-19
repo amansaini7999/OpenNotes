@@ -47,8 +47,10 @@ See the [installation guide](./docs/INSTALLATION.md) to get started and the
 Code, documentation, accessibility improvements, bug reports, and real-device
 testing are welcome.
 
-[Open an issue](https://github.com/amansaini7999/OpenNotes/issues) or follow the
-[development guide](./docs/DEVELOPMENT.md) to contribute.
+Start with the [contributor guide](./CONTRIBUTING.md) and
+[development setup](./docs/DEVELOPMENT.md).
+[Report a bug](https://github.com/amansaini7999/OpenNotes/issues/new?template=bug_report.yml)
+or follow the [security policy](./SECURITY.md) for private vulnerability reports.
 
 ## License
 

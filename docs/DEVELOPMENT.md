@@ -100,10 +100,7 @@ stable: browser data does not automatically transfer when an address changes.
 
 ## Contributing
 
-Discuss substantial changes in an issue first. Keep changes focused, preserve
-strict TypeScript types, separate side effects from document logic, and add
-tests for changed behavior. Run the checks above before submitting a PR.
-
-For bug reports, include the browser/device, reproduction steps, and whether
-the app was installed or in a tab. Do not attach private notebooks or personal
-information.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for the issue/PR workflow,
+validation expectations and safe bug reporting.
+[AGENTS.md](../AGENTS.md) provides repository instructions for coding assistants.
+Report vulnerabilities privately following [SECURITY.md](../SECURITY.md).
