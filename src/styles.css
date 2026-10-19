@@ -126,6 +126,8 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 7px; background: transparent; padding: 9px; min-width: 36px; min-height: 36px; }
 .icon-button:hover { background: #e8ece2; }
 .danger { color: #a35c58; }
+.writing-session, .writing-session body, .writing-session body * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.writing-session dialog input:not([type="range"]):not([type="file"]), .writing-session dialog textarea, .writing-session dialog [contenteditable="true"] { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
 .editor { flex: 1; min-height: 0; display: flex; flex-direction: column; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .editor button, .editor select, .editor label { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .editor dialog input:not([type="range"]):not([type="file"]), .editor dialog textarea, .editor dialog [contenteditable="true"] { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
@@ -137,7 +139,7 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
 .editor-title .notebook-name { margin: 0; font: 550 14px/1.3 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .editor-title span { display: block; font-size: 10px; color: #8a9485; margin-top: 5px; }
 .editor-title .page-position { display: block; padding: 0; min-height: 15px; font-size: 10px; line-height: 1.3; color: #74816d; margin-top: 2px; }
-.ink-toolbar { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 4px 12px; border-bottom: 1px solid #dce1d5; background: #f9faf5; }
+.ink-toolbar { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 4px 12px; border-bottom: 1px solid #dce1d5; background: #f9faf5; overflow-x: auto; flex-shrink: 0; }
 .tool-button.settings-button { display: flex; gap: 7px; padding: 0 9px; }
 .current-ink { width: 16px; height: 16px; border-radius: 50%; }
 .document-actions { display: grid; gap: 10px; margin: 18px 0; }
@@ -145,10 +147,13 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
 .add-content-actions > button { gap: 14px; padding: 14px; }
 .add-content-actions strong { display: block; font-size: 13px; font-weight: 600; }
 .add-content-actions small { display: block; margin-top: 5px; color: #76866c; font-size: 11px; }
-.tool-group { display: flex; gap: 4px; align-items: center; }
+.tool-group { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
 .tool-button { background: transparent; border: 1px solid transparent; border-radius: 8px; min-width: 38px; height: 38px; display: grid; place-items: center; color: #728471; }
 .tool-button:hover { background: #e6ede0; }
 .tool-button.selected { background: #e2eadd; color: #305e47; border-color: #c9d7bf; }
+.tool-button.named-tool { display: inline-flex; justify-content: center; align-items: center; gap: 5px; padding: 0 8px; }
+.tool-button svg { display: block; flex-shrink: 0; }
+.tool-label { font-size: 10px; white-space: nowrap; }
 .toolbar-divider { width: 1px; height: 25px; background: #dfe4d7; flex-shrink: 0; }
 .color-group { gap: 9px; padding: 0 3px; }
 .color-swatch { width: 21px; height: 21px; border-radius: 50%; background: var(--swatch); border: 3px solid #f9faf5; outline: 1px solid transparent; padding: 0; }
@@ -329,7 +334,7 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
   .editor-header .icon-button { min-width: 30px; padding: 5px; }
   .export-button { padding: 9px; min-height: 34px; }
   .export-button span { display: none; }
-  .ink-toolbar { padding: 3px; gap: 4px; justify-content: center; }
+  .ink-toolbar { padding: 3px; gap: 4px; justify-content: flex-start; }
   .tool-button { min-width: 33px; height: 34px; }
   .toolbar-divider { height: 20px; }
   .width-control { gap: 4px; }

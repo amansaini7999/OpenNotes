@@ -42,7 +42,7 @@ interface Props {
   renderScale?: number
 }
 
-export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange, penStyle = 'ballpoint', temporarySeconds = 5, readOnly = false, sharedPen, onExternalScroll, renderScale = 1 }: Props) {
+export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange, penStyle = 'ballpoint', temporarySeconds = 2, readOnly = false, sharedPen, onExternalScroll, renderScale = 1 }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
@@ -58,7 +58,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   const eraserPosition = useRef<Point | null>(null)
   const viewRef = useRef<View>({ x: 0, y: 0, scale: 1 })
   const [view, setView] = useState(viewRef.current)
-  const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean; temporary: boolean; lifetime: number } | null>(null)
+  const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean; temporary: boolean; lifetime: number; pointTimes: number[] } | null>(null)
   const lastPointer = useRef<PointerEvent | null>(null)
   const inputHandlers = useRef<{ move: (event: PointerEvent) => void; finish: (event: PointerEvent, cancelled: boolean) => void } | null>(null)
   const touches = useRef(new Map<number, Position>())
@@ -88,6 +88,10 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     }
   }
 
+  const showTemporary = (entry: NonNullable<typeof active.current>) => {
+    const snapshot: TemporaryStroke = { stroke: { ...entry.stroke, points: [...entry.stroke.points] }, pointTimes: [...entry.pointTimes], lifetime: entry.lifetime, expiresAt: entry.pointTimes.at(-1)! + entry.lifetime }
+    setTemporary(value => [...value.filter(value => value.stroke.id !== snapshot.stroke.id), snapshot])
+  }
   const drawLive = () => {
     frame.current = 0
     const canvas = live.current, stroke = active.current
@@ -96,7 +100,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     const ratio = canvas.width / page.width
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     ctx.clearRect(0, 0, page.width, page.height)
-    if (stroke && !stroke.eraser) drawStroke(ctx, { ...stroke.stroke })
+    if (stroke?.temporary) showTemporary(stroke)
+    else if (stroke && !stroke.eraser) drawStroke(ctx, { ...stroke.stroke })
     if (stroke?.eraser && stroke.stroke.points.length) {
       paintCommitted(eraseInk(strokesRef.current, stroke.stroke.points, eraserRadius))
     }
@@ -302,6 +307,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       eraser: tool === 'eraser',
       temporary: tool === 'temporary',
       lifetime: temporarySeconds * 1000,
+      pointTimes: [performance.now()],
       stroke: { id: crypto.randomUUID(), tool: tool === 'highlighter' ? 'highlighter' : 'pen', color, width, penStyle: tool === 'temporary' ? 'ballpoint' : penStyle, points: [pointFrom(event.nativeEvent)] },
     }
     if (sharedPen && event.pointerType === 'pen') { sharedPen.current.id = event.pointerId; sharedPen.current.lastAt = performance.now() }
@@ -372,7 +378,10 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     if (event.cancelable) event.preventDefault()
     lastPointer.current = event
     const samples = event.getCoalescedEvents?.() ?? []
-    for (const sample of samples.length ? samples : [event]) active.current.stroke.points.push(pointFrom(sample))
+    for (const sample of samples.length ? samples : [event]) {
+      active.current.stroke.points.push(pointFrom(sample))
+      if (active.current.temporary) active.current.pointTimes.push(performance.now())
+    }
     if (!frame.current) frame.current = requestAnimationFrame(drawLive)
   }
 
@@ -420,9 +429,10 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       const point = pointFrom(event)
       point.pressure = stroke.stroke.points.at(-1)!.pressure
       stroke.stroke.points.push(point)
+      if (stroke.temporary) stroke.pointTimes.push(performance.now())
     }
     if (stroke.temporary) {
-      setTemporary(value => [...value, { stroke: stroke.stroke, expiresAt: performance.now() + stroke.lifetime }])
+      showTemporary(stroke)
       return
     }
     const previous = strokesRef.current
@@ -489,6 +499,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   return <div
     className={`ink-viewport tool-${readOnly ? 'hand' : tool}`}
     data-page-turn={pageTurn ?? undefined}
+    data-native-scroll={readOnly && Boolean(onExternalScroll)}
     style={readOnly && onExternalScroll ? { touchAction: 'pan-y', overflow: 'clip', overscrollBehavior: 'auto' } : undefined}
     ref={viewport}
     data-testid="ink-viewport"

@@ -1,4 +1,4 @@
-import { dotRadius, isDotStroke, pressureWidth, type NotePage, type Stroke } from './model'
+import { dotRadius, isDotStroke, type NotePage, type Stroke } from './model'
 import { penPath } from './ink'
 const canvasPaths = new WeakMap<Stroke, Path2D>()
 
@@ -21,19 +21,11 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.beginPath()
     stroke.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y))
     ctx.stroke()
-  } else if (stroke.penStyle) {
+  } else {
     let path = canvasPaths.get(stroke)
     if (!path) { path = new Path2D(penPath(stroke)); canvasPaths.set(stroke, path) }
-    ctx.fill(path)
-  } else {
-    for (let i = 1; i < stroke.points.length; i++) {
-      const a = stroke.points[i - 1], b = stroke.points[i]
-      ctx.lineWidth = pressureWidth(stroke.width, (a.pressure + b.pressure) / 2)
-      ctx.beginPath()
-      ctx.moveTo(a.x, a.y)
-      ctx.lineTo(b.x, b.y)
-      ctx.stroke()
-    }
+    if (stroke.penStyle === 'ballpoint') { ctx.lineWidth = stroke.width; ctx.stroke(path) }
+    else ctx.fill(path)
   }
   ctx.restore()
 }

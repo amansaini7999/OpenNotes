@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, Eye, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, Sparkles, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, SlidersHorizontal, Undo2, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, Eye, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, Wand, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, SlidersHorizontal, Undo2, X } from 'lucide-react'
 import { colors, createPage, insertPagesAfter, dotRadius, isDotStroke, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset, type PenStyle } from '../model'
 import { InkCanvas } from './InkCanvas'
 import { prefersPencilOnly } from '../input'
@@ -30,7 +30,7 @@ const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[
   { id: 'eraser', name: 'Eraser', icon: Eraser, shortcut: 'E' },
   { id: 'hand', name: 'Pan', icon: Hand, shortcut: 'V' },
   { id: 'image', name: 'Select images', icon: MousePointer2, shortcut: 'I' },
-  { id: 'temporary', name: 'Temporary pen', icon: Sparkles, shortcut: 'L' },
+  { id: 'temporary', name: 'Temporary pen', icon: Wand, shortcut: 'L' },
 ]
 
 export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, saveIndicator }: Props) {
@@ -48,7 +48,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const [color, setColor] = useState(colors[0])
   const [width, setWidth] = useState(3)
   const [penStyle, setPenStyle] = useState<PenStyle>('ballpoint')
-  const [temporarySeconds, setTemporarySeconds] = useState(5)
+  const [temporarySeconds, setTemporarySeconds] = useState(2)
   const [temporaryColor, setTemporaryColor] = useState('#e85d4a')
   const [temporaryWidth, setTemporaryWidth] = useState(4)
   const [eraserRadius, setEraserRadius] = useState(18)
@@ -257,7 +257,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     </header>
     {!toolsHidden && !readOnly && <div className="ink-toolbar" role="toolbar" aria-label="Drawing tools">
       <div className="tool-group">
-        {tools.map(item => <button key={item.id} className={`tool-button ${tool === item.id ? 'selected' : ''}`} aria-label={item.name} aria-pressed={tool === item.id} title={`${item.name} (${item.shortcut})`} onClick={() => setTool(item.id)}><item.icon size={21} /></button>)}
+        {tools.map(item => <button key={item.id} className={`tool-button ${tool === item.id ? 'selected' : ''} ${item.id === 'image' || item.id === 'temporary' ? 'named-tool' : ''}`} aria-label={item.name} aria-pressed={tool === item.id} title={`${item.name} (${item.shortcut})${item.id === 'image' ? ': move or resize pasted images' : item.id === 'temporary' ? `: fading trail, ${temporarySeconds} seconds` : ''}`} onClick={() => setTool(item.id)}><item.icon size={21} />{item.id === 'image' && <span className="tool-label">Images</span>}{item.id === 'temporary' && <span className="tool-label">Laser · {temporarySeconds}s</span>}</button>)}
       </div>
       <button className="tool-button settings-button" aria-label="Tool settings" onClick={() => setPanel('tools')}><span className="current-ink" style={{ background: activeColor }} /><Settings2 size={17} /></button>
       <span className="toolbar-divider" />
@@ -349,7 +349,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
         const style = event.target.value
         if (style === 'ballpoint' || style === 'pressure') setPenStyle(style)
       }}><option value="ballpoint">Ballpoint — steady width</option><option value="pressure">Pressure pen</option></select></label>}
-      {tool === 'temporary' && <label className="field">Disappear after<select aria-label="Temporary ink lifetime" value={temporarySeconds} onChange={event => setTemporarySeconds(Number(event.target.value))}><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="30">30 seconds</option></select><span>Presentation ink fades away and is never saved or exported.</span></label>}
+      {tool === 'temporary' && <label className="field">Trail duration<select aria-label="Temporary ink lifetime" value={temporarySeconds} onChange={event => setTemporarySeconds(Number(event.target.value))}><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="30">30 seconds</option></select><span>Older parts of the trail disappear while you draw. The remaining trail fades smoothly during its final second. It is never saved or exported.</span></label>}
       <label className="field">{tool === 'eraser' ? 'Eraser size' : 'Stroke width'}<input aria-label={tool === 'eraser' ? 'Eraser size' : 'Stroke width'} type="range" min={tool === 'eraser' ? 4 : 1} max={tool === 'eraser' ? 40 : 8} step={tool === 'eraser' ? 2 : 0.5} value={tool === 'eraser' ? eraserRadius : activeWidth} onChange={e => tool === 'eraser' ? setEraserRadius(Number(e.target.value)) : tool === 'temporary' ? setTemporaryWidth(Number(e.target.value)) : setWidth(Number(e.target.value))} /></label>
     </Dialog>}
   </main>
@@ -366,7 +366,7 @@ function PagePreview({ page, sources }: { page: NotePage; sources: SourceAsset[]
     })}
     {page.strokes.map(stroke => isDotStroke(stroke)
       ? <circle key={stroke.id} cx={stroke.points[0].x} cy={stroke.points[0].y} r={dotRadius(stroke)} fill={stroke.color} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} />
-      : stroke.tool === 'pen' && stroke.penStyle ? <path key={stroke.id} d={penPath(stroke)} fill={stroke.color} />
+      : stroke.tool === 'pen' ? <path key={stroke.id} d={penPath(stroke)} fill={stroke.penStyle === 'ballpoint' ? 'none' : stroke.color} stroke={stroke.penStyle === 'ballpoint' ? stroke.color : undefined} strokeWidth={stroke.width} strokeLinecap="round" strokeLinejoin="round" />
       : <polyline key={stroke.id} points={stroke.points.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={stroke.color} strokeWidth={stroke.tool === 'highlighter' ? stroke.width * 5 : stroke.width} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} strokeLinecap="round" strokeLinejoin="round" />)}
   </svg>
 }
