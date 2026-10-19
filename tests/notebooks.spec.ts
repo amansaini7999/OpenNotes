@@ -457,11 +457,11 @@ test('invalid in-notebook imports fail atomically without adding partial pages',
   await expect(page.getByRole('alert')).toContainText('could not be decoded')
   await expect(page.getByRole('button', { name: 'Show page overview', exact: true })).toHaveText('Page 1 of 1')
   const pdf = await PDFDocument.create()
-  for (let i = 0; i < 51; i++) pdf.addPage([100, 100])
+  for (let i = 0; i < 1001; i++) pdf.addPage([100, 100])
   await page.getByLabel('Insert PDF or images as pages').setInputFiles({
     name: 'too-many.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
   })
-  await expect(page.getByRole('alert')).toContainText('up to 50 pages')
+  await expect(page.getByRole('alert')).toContainText('up to 1,000 pages')
   await expect(page.getByRole('button', { name: 'Show page overview', exact: true })).toHaveText('Page 1 of 1')
 })
 

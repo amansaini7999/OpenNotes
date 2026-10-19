@@ -49,6 +49,11 @@ upgrades version 1/2 libraries without clearing notes or original assets.
 Folders and notebook moves commit in the same transaction. Backups default
 missing folder metadata to an empty hierarchy, preserving old backup support.
 Each imported PDF is stored once and referenced by its pages.
+PDF files support 1,000 pages; notebooks support 2,000 pages. Books over 50 pages
+store geometry and original bytes rather than eager raster previews.
+The editor decodes only visible book pages/thumbnails, serializes rendering,
+cancels obsolete requests, caches 12 previews and releases its decoder on exit.
+Startup uses bulk store reads rather than issuing thousands of per-page requests.
 The current startup path still loads all notebook data, so lazy loading remains
 an area for improvement with large libraries.
 
