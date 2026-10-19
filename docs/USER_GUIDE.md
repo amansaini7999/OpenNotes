@@ -48,6 +48,11 @@ up to 1,000 folders, with names up to 100 characters.
   When zoomed beyond the viewport width, two fingers pan instead.
 - Select **Pan** for explicit one-finger movement. Desktop navigation uses
   page buttons and thumbnails rather than swipe page turns.
+  In vertical mode, Pan uses native finger scrolling with inertia, just like
+  read mode; Pencil/mouse drags also move the document. Selecting another tool
+  clears the previous gesture. On pen-first iPads, fingers still navigate while
+  Pencil uses the selected pen/highlighter/eraser; tool selection does not turn
+  finger navigation into drawing.
 - **Page settings → Page navigation mode** switches between swipe pages and
   continuous vertical scrolling. The choice is remembered on this device.
   Vertical mode renders nearby pages only, and keeps each page's ink and undo
@@ -78,6 +83,13 @@ For a small screenshot inside the current page, paste an image with Ctrl/Cmd+V
 outside text fields, or use **Add content → Image → Paste from clipboard**.
 Clipboard access depends on browser permission and iPadOS support.
 **Choose image** provides a file-picker alternative without adding another page.
+If direct clipboard reading is denied or supplies no image, OpenNotes opens a
+**System paste area**. Touch and hold that field and use the system **Paste**
+action, or press Cmd/Ctrl+V. This deliberate field permits the native paste menu
+without enabling text selection on the writing page. Copied image files and
+embedded PNG/JPEG/WebP images in clipboard HTML are supported. Links, selected
+text and remote image URLs are not image pixels and are not downloaded
+automatically; use **Copy Image** in the source app, or Choose image.
 
 Pasted/inline images switch to **Select images** (`I`). Drag an image to move it,
 drag its corner to resize proportionally, or use its size/remove controls.

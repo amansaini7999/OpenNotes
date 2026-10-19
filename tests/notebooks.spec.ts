@@ -206,6 +206,79 @@ test('clipboard permission failures are visible and offer the image-picker alter
   await expect(page.getByRole('alert')).toContainText('Paste failed')
   await expect(page.getByRole('alert')).toContainText('Choose image')
   expect((await storedImages(page)).length).toBe(0)
+  const field = page.getByRole('textbox', { name: 'System paste area' })
+  await expect(field).toBeVisible()
+  expect(await field.evaluate(element => getComputedStyle(element).webkitUserSelect)).toBe('text')
+  const base64 = (await screenshotFixture(page)).toString('base64')
+  await field.evaluate((element, base64) => {
+    const data = new DataTransfer()
+    data.items.add(new File([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], 'image', { type: 'image/png' }))
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, base64)
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('direct clipboard reading accepts an embedded image in HTML without importing markup', async ({ page }) => {
+  await createNotebook(page, 'HTML clipboard')
+  const base64 = (await screenshotFixture(page)).toString('base64')
+  await page.evaluate(base64 => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+    read: async () => [{ types: ['text/html'], getType: async () => new Blob([`<img src="data:image/png;base64,${base64}"><script>throw new Error('must not execute')</script>`], { type: 'text/html' }) }],
+  } }), base64)
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  await page.getByRole('button', { name: 'Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Paste from clipboard', exact: true }).click()
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  await page.reload()
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+})
+
+test('system Paste accepts item-only image data when direct clipboard access is unavailable', async ({ page }) => {
+  await createNotebook(page, 'Native paste fallback')
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }))
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  await page.getByRole('button', { name: 'Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Paste from clipboard', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('unavailable')
+  const base64 = (await screenshotFixture(page)).toString('base64')
+  await page.getByRole('textbox', { name: 'System paste area' }).evaluate((element, base64) => {
+    const data = new DataTransfer()
+    data.items.add(new File([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], 'screenshot.png'))
+    Object.defineProperty(data, 'files', { value: [] })
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, base64)
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+})
+
+test('clipboard with no exposed pixels offers system Paste and rejects links without fetching them', async ({ page }) => {
+  await createNotebook(page, 'System paste')
+  const requests: string[] = []
+  page.on('request', request => { if (request.url().includes('clipboard-test.invalid')) requests.push(request.url()) })
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+    read: async () => [{ types: ['text/plain'], getType: async () => new Blob(['https://clipboard-test.invalid/image.png'], { type: 'text/plain' }) }],
+  } }))
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  await page.getByRole('button', { name: 'Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Paste from clipboard', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('browser did not expose image data')
+  const field = page.getByRole('textbox', { name: 'System paste area' })
+  await field.evaluate(element => {
+    const data = new DataTransfer()
+    data.setData('text/html', '<img src="https://clipboard-test.invalid/image.png">')
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  await expect(page.getByRole('alert')).toContainText('Only text or a link')
+  expect(requests).toEqual([])
+  expect(await storedImages(page)).toHaveLength(0)
+  const base64 = (await screenshotFixture(page)).toString('base64')
+  await field.evaluate((element, base64) => {
+    const data = new DataTransfer()
+    data.setData('text/html', `<img src="data:image/png;base64,${base64}">`)
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, base64)
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
 })
 
 test('Add content starts with three clear actions and progressively reveals image sources', async ({ page }) => {

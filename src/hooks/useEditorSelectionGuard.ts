@@ -46,7 +46,7 @@ export function useEditorSelectionGuard(root: RefObject<HTMLElement | null>) {
       }
     }
     const move = (event: PointerEvent) => {
-      if (event.pointerType === 'pen' && (penId === event.pointerId || writingSurface(targetInEditor(event)))) {
+      if (event.pointerType === 'pen' && (penId === event.pointerId || ((event.buttons & 1) && writingSurface(targetInEditor(event))))) {
         lastPenAt = performance.now()
         if (event.buttons & 1) penId = event.pointerId
         else if (event.pressure === 0) penId = null

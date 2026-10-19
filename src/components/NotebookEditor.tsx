@@ -13,6 +13,7 @@ import { penPath } from '../ink'
 import { ScrollNotebook } from './ScrollNotebook'
 import { useNotebookNavigation } from '../hooks/useNotebookNavigation'
 import type { PenActivity } from '../page-layout'
+import { pastedImages, readClipboardImages } from '../clipboard'
 
 interface Props {
   notebook: Notebook
@@ -59,7 +60,8 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const [pagesOpen, setPagesOpen] = useState(!tabletLayout)
   const [pageTurn, setPageTurn] = useState<PageTurn | null>(null)
   const [toolsHidden, setToolsHidden] = useState(false)
-  const [panel, setPanel] = useState<'insert' | 'image' | 'tools' | 'page' | 'rename' | null>(null)
+  const [panel, setPanel] = useState<'insert' | 'image' | 'paste' | 'tools' | 'page' | 'rename' | null>(null)
+  const [pasteMessage, setPasteMessage] = useState('')
   const [renameDraft, setRenameDraft] = useState('')
   const [importing, setImporting] = useState('')
   const importInput = useRef<HTMLInputElement>(null)
@@ -167,6 +169,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   async function insertInlineImages(files: File[]) {
     if (readOnly) { onError('Exit read mode before inserting images.'); return }
     if (importing) { onError('Wait for the current import to finish before pasting another image.'); return }
+    onError('')
     setPanel(null)
     setImporting('Adding image to this page…')
     try {
@@ -188,32 +191,33 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
       if (actions.current.readOnly || (event.target instanceof HTMLElement && (event.target.closest('input,textarea,[contenteditable="true"]') || document.querySelector('dialog[open]')))) return
-      const files = Array.from(event.clipboardData?.files ?? []).filter(file => file.type.startsWith('image/')).map(file => {
-        if (/\.(png|jpe?g|webp)$/i.test(file.name)) return file
-        const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png'
-        return new File([file], `pasted-image.${extension}`, { type: file.type })
-      })
-      if (!files.length) return
-      event.preventDefault()
-      void inlineImporter.current(files)
+      if (!event.clipboardData) return
+      try {
+        const files = pastedImages(event.clipboardData)
+        if (!files.length) {
+          onError('No image data was supplied by the clipboard. Copy the image itself, not its link or selected text, or use Add content → Image → Choose image.')
+          return
+        }
+        event.preventDefault()
+        void inlineImporter.current(files)
+      } catch (cause: unknown) {
+        event.preventDefault()
+        onError(cause instanceof Error ? cause.message : 'The clipboard image could not be read.')
+      }
     }
     window.addEventListener('paste', paste)
     return () => window.removeEventListener('paste', paste)
-  }, [])
+  }, [onError])
   const pasteImage = async () => {
+    setPasteMessage('')
     try {
       if (!navigator.clipboard?.read) throw new Error('Clipboard image access is unavailable here.')
-      const items = await navigator.clipboard.read()
-      const files: File[] = []
-      for (const item of items) {
-        const type = item.types.find(type => ['image/png', 'image/jpeg', 'image/webp'].includes(type))
-        if (type) files.push(new File([await item.getType(type)], `pasted-image.${type === 'image/jpeg' ? 'jpg' : type.split('/')[1]}`, { type }))
-      }
-      if (!files.length) throw new Error('The clipboard does not contain a supported image. Copy a screenshot first.')
+      const files = await readClipboardImages(await navigator.clipboard.read())
+      if (!files.length) throw new Error('The browser did not expose image data to the clipboard reader. A copied link or text is not an image.')
       await inlineImporter.current(files)
     } catch (cause: unknown) {
-      setPanel(null)
-      onError(`Paste failed: ${cause instanceof Error ? cause.message : 'Clipboard access was denied.'} Use Add content → Image → Choose image instead.`)
+      setPasteMessage(`Paste failed: ${cause instanceof Error ? cause.message : 'Clipboard access was denied.'} Try the system Paste action in the field below, or Choose image.`)
+      setPanel('paste')
     }
   }
   const fit = (mode: 'width' | 'page') => {
@@ -307,6 +311,23 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
         <button className="secondary" onClick={() => void pasteImage()} disabled={page.images.length >= 100}><ClipboardPaste size={19} /> Paste from clipboard</button>
       </div>
       <button className="secondary" onClick={() => setPanel('insert')}><ArrowLeft size={16} /> Back</button>
+    </Dialog>}
+    {panel === 'paste' && <Dialog title="Paste image" onClose={() => setPanel(null)}>
+      {pasteMessage && <p role="alert">{pasteMessage}</p>}
+      <p>Copy the image or screenshot itself. Touch and hold the field, then choose Paste from the system menu. With a keyboard, use Cmd/Ctrl+V.</p>
+      <label className="field">System paste area<textarea autoFocus aria-label="System paste area" placeholder="Touch and hold here to paste an image" onPaste={event => {
+        event.preventDefault()
+        event.stopPropagation()
+        try {
+          const files = pastedImages(event.clipboardData)
+          if (!files.length) throw new Error('Only text or a link was supplied, not image pixels. Use Copy Image in the source app, or Choose image.')
+          setPasteMessage('')
+          void inlineImporter.current(files)
+        } catch (cause: unknown) {
+          setPasteMessage(cause instanceof Error ? cause.message : 'The clipboard image could not be read. Choose image instead.')
+        }
+      }} /></label>
+      <button className="secondary" onClick={() => inlineInput.current?.click()}><ImagePlus size={19} /> Choose image</button>
     </Dialog>}
     {panel === 'page' && <Dialog title="Page settings" onClose={() => setPanel(null)}>
       <button className="secondary" disabled={readOnly} onClick={() => { setRenameDraft(notebook.title); setPanel('rename') }}><PenLine size={16} /> Rename notebook</button>

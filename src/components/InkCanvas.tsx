@@ -70,6 +70,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   const frame = useRef(0)
   const onZoomRef = useRef(onZoom)
   onZoomRef.current = onZoom
+  const nativeScroll = Boolean(onExternalScroll) && (readOnly || tool === 'hand')
 
   const moveView = (next: View) => {
     viewRef.current = next
@@ -202,11 +203,12 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
   useLayoutEffect(() => {
-    if (!active.current) {
-      eraserPosition.current = null
-      clearLive()
-    }
-  }, [tool])
+    if (active.current && lastPointer.current) inputHandlers.current?.finish(lastPointer.current, true)
+    pan.current = null
+    dismissTouches()
+    eraserPosition.current = null
+    clearLive()
+  }, [tool, readOnly])
 
   function paintCommitted(strokes: Stroke[]) {
     const ctx = committed.current?.getContext('2d')
@@ -251,10 +253,10 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (active.current?.type === 'pen' && event.pointerType !== 'pen')) return
-    if (readOnly && onExternalScroll && event.pointerType === 'touch') return
+    if (nativeScroll && event.pointerType === 'touch') return
     if (!readOnly && event.pointerType === 'touch' && suppressTouch(active.current?.type === 'pen' || sharedPen?.current.id != null, Math.max(lastPenAt.current, sharedPen?.current.lastAt ?? -Infinity), performance.now())) return
     if (event.cancelable) event.preventDefault()
-    if (event.pointerType === 'pen' && !readOnly) {
+    if (event.pointerType === 'pen' && !readOnly && tool !== 'hand') {
       lastPenAt.current = performance.now()
       if (!detectedPen.current) { detectedPen.current = true; onPenDetected() }
       dismissTouches()
@@ -317,7 +319,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   }
 
   const pointerMove = (event: PointerEvent) => {
-    if (event.pointerType === 'pen' && !readOnly) {
+    if (event.pointerType === 'pen' && !readOnly && tool !== 'hand' && (active.current?.id === event.pointerId || (event.buttons & 1))) {
       lastPenAt.current = performance.now()
       if (sharedPen) sharedPen.current.lastAt = performance.now()
       dismissTouches()
@@ -454,13 +456,13 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   useEffect(() => {
     const outside = (event: PointerEvent) => !(event.target instanceof Node && viewport.current?.contains(event.target))
     const move = (event: PointerEvent) => {
-      if (active.current && outside(event)) inputHandlers.current?.move(event)
+      if ((active.current || pan.current || externalPan.current || touches.current.size) && outside(event)) inputHandlers.current?.move(event)
     }
     const up = (event: PointerEvent) => {
-      if (active.current && outside(event)) inputHandlers.current?.finish(event, false)
+      if (outside(event)) inputHandlers.current?.finish(event, false)
     }
     const cancel = (event: PointerEvent) => {
-      if (active.current && outside(event)) inputHandlers.current?.finish(event, true)
+      if (outside(event)) inputHandlers.current?.finish(event, true)
     }
     const interrupted = () => {
       const event = lastPointer.current
@@ -499,13 +501,13 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   return <div
     className={`ink-viewport tool-${readOnly ? 'hand' : tool}`}
     data-page-turn={pageTurn ?? undefined}
-    data-native-scroll={readOnly && Boolean(onExternalScroll)}
-    style={readOnly && onExternalScroll ? { touchAction: 'pan-y', overflow: 'clip', overscrollBehavior: 'auto' } : undefined}
+    data-native-scroll={nativeScroll}
+    style={nativeScroll ? { touchAction: 'pan-y', overflow: 'clip', overscrollBehavior: 'auto' } : undefined}
     ref={viewport}
     data-testid="ink-viewport"
     aria-label="Writing surface. Use a pen or mouse to draw; two fingers to pan and zoom."
     onPointerEnter={event => {
-      if (event.pointerType === 'pen' && !readOnly) {
+      if (event.pointerType === 'pen' && !readOnly && tool !== 'hand' && (event.buttons & 1)) {
         lastPenAt.current = performance.now()
         if (sharedPen) sharedPen.current.lastAt = performance.now()
         dismissTouches()
