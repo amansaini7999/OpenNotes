@@ -116,8 +116,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     const fit = () => {
       if (active.current) return
       const widthScale = (element.clientWidth - 32) / page.width
-      const scale = Math.max(0.1, Math.min(widthScale, fitMode === 'page' ? (element.clientHeight - 64) / page.height : 4))
-      const next = { scale, x: (element.clientWidth - page.width * scale) / 2, y: fitMode === 'page' ? Math.max(16, (element.clientHeight - page.height * scale) / 2 - 16) : 16 }
+      const scale = Math.max(0.1, Math.min(widthScale, fitMode === 'page' ? (element.clientHeight - 32) / page.height : 4))
+      const next = { scale, x: (element.clientWidth - page.width * scale) / 2, y: fitMode === 'page' ? Math.max(16, (element.clientHeight - page.height * scale) / 2) : 16 }
       viewRef.current = next
       setView(next)
       onZoomRef.current(Math.round(scale * 100))

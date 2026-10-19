@@ -2,6 +2,7 @@ import { expect, test, type Page, type Download } from '@playwright/test'
 import { PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib'
 import { inflateSync } from 'node:zlib'
 import { createNotebook as notebookFixture, emptyLibrary, mergeBackup } from '../src/model'
+import { pageSetting } from './editor-settings'
 
 async function downloadBytes(download: Download): Promise<Buffer> {
   const stream = await download.createReadStream()
@@ -23,7 +24,7 @@ async function createNotebook(page: Page, title = 'Field notes', keepDefaults = 
 }
 
 async function draw(page: Page) {
-  await page.getByRole('button', { name: 'Fit page', exact: true }).click()
+  await pageSetting(page, 'Fit page')
   const paper = await page.getByTestId('paper').boundingBox()
   if (!paper) throw new Error('Paper did not render')
   await page.mouse.move(paper.x + paper.width * 0.2, paper.y + paper.height * 0.3)
@@ -54,11 +55,22 @@ async function confirmRestore(page: Page, copies = false) {
 }
 
 async function setPaper(page: Page, template: string) {
+  await page.getByRole('button', { name: 'Page settings', exact: true }).click()
   await page.getByRole('combobox', { name: 'Paper template' }).selectOption(template)
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
 }
 
 async function expectImportedBackground(page: Page) {
+  await page.getByRole('button', { name: 'Page settings', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Paper template' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
+}
+
+async function expectPaper(page: Page, value?: string) {
+  await page.getByRole('button', { name: 'Page settings', exact: true }).click()
+  if (value) await expect(page.getByRole('combobox', { name: 'Paper template' })).toHaveValue(value)
+  else await expect(page.getByRole('combobox', { name: 'Paper template' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
 }
 
 async function strokeCount(page: Page): Promise<number> {
@@ -255,7 +267,7 @@ test('the app fills the visible viewport without document scrolling after height
   }
   await createNotebook(page, 'Viewport')
   await expect(page.getByRole('textbox', { name: 'Notebook title' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Fit page' })).toBeInViewport()
+  await expect(page.getByRole('button', { name: 'Page settings', exact: true })).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true)
 })
 
@@ -316,7 +328,7 @@ test('inserts image and ordered PDF pages after the current page, preserving exi
   await draw(page)
   await page.getByRole('button', { name: 'Add content', exact: true }).click()
   await page.getByRole('button', { name: 'Add page', exact: true }).click()
-  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await pageSetting(page, 'Previous page')
   const image = await page.evaluate(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 300; canvas.height = 400
@@ -336,21 +348,21 @@ test('inserts image and ordered PDF pages after the current page, preserving exi
   await expectImportedBackground(page)
   await draw(page)
   expect(await strokeCount(page)).toBe(2)
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await pageSetting(page, 'Next page')
   await expectImportedBackground(page)
   let dimensions = await page.getByTestId('paper').evaluate(element => ({ width: element.clientWidth, height: element.clientHeight }))
   expect(dimensions.height).toBeGreaterThan(dimensions.width)
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await pageSetting(page, 'Next page')
   dimensions = await page.getByTestId('paper').evaluate(element => ({ width: element.clientWidth, height: element.clientHeight }))
   expect(dimensions.width).toBeGreaterThan(dimensions.height)
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
-  await expect(page.getByRole('combobox', { name: 'Paper template' })).toBeEnabled()
+  await pageSetting(page, 'Next page')
+  await expectPaper(page)
   await page.evaluate(() => navigator.serviceWorker.ready)
   await context.setOffline(true)
   await page.reload()
   await expect(page.getByRole('button', { name: 'Show page overview', exact: true })).toHaveText('Page 1 of 5')
   expect(await strokeCount(page)).toBe(2)
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await pageSetting(page, 'Next page')
   await expectImportedBackground(page)
   await page.getByRole('button', { name: 'Back to notebooks', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Open Mixed notebook', exact: true })).toHaveCount(1)
@@ -603,7 +615,7 @@ test('restoring two notebooks after deleting one and editing the other results i
   await page.reload()
   await expect(page.getByRole('button', { name: /^Open / })).toHaveCount(2)
   await page.getByRole('button', { name: 'Open Second notebook', exact: true }).click()
-  await expect(page.getByRole('combobox', { name: 'Paper template' })).toHaveValue('ruled')
+  await expectPaper(page, 'ruled')
 })
 
 test('changed legacy-ID notebooks require a restore choice and do not automatically add a third notebook', async ({ page }) => {
@@ -633,7 +645,7 @@ test('changed legacy-ID notebooks require a restore choice and do not automatica
   await confirmRestore(page)
   await expect(page.getByRole('button', { name: /^Open / })).toHaveCount(2)
   await page.getByRole('button', { name: 'Open Second notebook', exact: true }).click()
-  await expect(page.getByRole('combobox', { name: 'Paper template' })).toHaveValue('ruled')
+  await expectPaper(page, 'ruled')
 })
 
 test('restore success is not reported when the local database write fails', async ({ page }) => {
@@ -805,7 +817,7 @@ test('rapid consecutive strokes do not reset the live canvas', async ({ page }) 
 test('Chromium two-finger pinch changes zoom without leaving accidental ink', async ({ page, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'CDP multi-touch injection is Chromium-only; hardware gestures still need iPad testing.')
   await createNotebook(page, 'Gestures')
-  await page.getByRole('button', { name: 'Fit page', exact: true }).click()
+  await pageSetting(page, 'Fit page')
   const paper = await page.getByTestId('paper').boundingBox()
   if (!paper) throw new Error('Paper missing')
   const session = await context.newCDPSession(page)
@@ -842,8 +854,8 @@ test('tablet single- and two-finger horizontal swipes turn pages, but pinches an
     await page.getByRole('button', { name: 'Add content', exact: true }).click()
     await page.getByRole('button', { name: 'Add page', exact: true }).click()
   }
-  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
-  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await pageSetting(page, 'Previous page')
+  await pageSetting(page, 'Previous page')
   const session = await context.newCDPSession(page)
   await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
   const bounds = await page.getByTestId('ink-viewport').boundingBox()
@@ -869,7 +881,7 @@ test('tablet single- and two-finger horizontal swipes turn pages, but pinches an
   await swipe(1, -15)
   await swipe(1, -120, 120)
   await expect(position).toHaveText('Page 2 of 3')
-  await page.getByRole('button', { name: 'Fit width', exact: true }).click()
+  await pageSetting(page, 'Fit width')
   const initialWidth = (await page.getByTestId('paper').boundingBox())!.width
   await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 1, x: center.x - 30, y: center.y }, { id: 2, x: center.x + 30, y: center.y }] })
   await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ id: 1, x: center.x - 60, y: center.y }, { id: 2, x: center.x + 60, y: center.y }] })
@@ -889,7 +901,7 @@ test('palm-like touch cannot draw or pan before, during or just after a pen stro
   })
   await page.reload()
   await createNotebook(page, 'Palm guard')
-  await page.getByRole('button', { name: 'Fit page', exact: true }).click()
+  await pageSetting(page, 'Fit page')
   const paper = await page.getByTestId('paper').boundingBox()
   if (!paper) throw new Error('Paper missing')
   const original = await page.getByTestId('paper').getAttribute('style')

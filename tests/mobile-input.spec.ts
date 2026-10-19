@@ -1,11 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
+import { pageSetting } from './editor-settings'
 
 async function openNotebook(page: Page) {
   await page.goto('./')
   await page.getByRole('button', { name: 'Create a notebook', exact: true }).click()
   await page.getByRole('textbox', { name: 'Notebook name' }).fill('Mobile input')
   await page.getByRole('button', { name: 'Create notebook', exact: true }).click()
-  await page.getByRole('button', { name: 'Fit page', exact: true }).click()
+  await pageSetting(page, 'Fit page')
 }
 
 async function ink(page: Page): Promise<{ points: { x: number; y: number; pressure: number }[] }[]> {
@@ -42,6 +43,72 @@ test('a lost pen capture does not end the stroke or drop subsequent contact samp
   await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
   await expect.poll(async () => (await ink(page))[0]?.points.at(-1)?.x ?? 0).toBeGreaterThan(794 * 0.2 + 90 * 794 / paper.width)
   expect(await ink(page)).toHaveLength(1)
+  await session.detach()
+})
+
+test('writing chrome rejects selection and callouts without blocking notebook title editing', async ({ page }) => {
+  await openNotebook(page)
+  const overview = page.getByRole('button', { name: 'Show page overview', exact: true })
+  expect(await overview.evaluate(element => getComputedStyle(element).webkitUserSelect)).toBe('none')
+  if (await page.evaluate(() => CSS.supports('-webkit-touch-callout', 'none'))) {
+    expect(await overview.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-touch-callout'))).toBe('none')
+  }
+  const prevented = await overview.evaluate(element => ({
+    selection: !element.dispatchEvent(new Event('selectstart', { bubbles: true, cancelable: true })),
+    menu: !element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+  }))
+  expect(prevented).toEqual({ selection: true, menu: true })
+  const title = page.getByRole('textbox', { name: 'Notebook title' })
+  expect(await title.evaluate(element => getComputedStyle(element).webkitUserSelect)).toBe('text')
+  expect(await title.evaluate(element => element.dispatchEvent(new Event('selectstart', { bubbles: true, cancelable: true })))).toBe(true)
+})
+
+test('the writing surface has no bottom controls to hit with a resting palm', async ({ page }) => {
+  await openNotebook(page)
+  await expect(page.locator('.canvas-bottom')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Page settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Page settings', exact: true })
+  await expect(settings.getByRole('combobox', { name: 'Paper template' })).toBeVisible()
+  await expect(settings.getByRole('button', { name: 'Fit page', exact: true })).toBeVisible()
+  await expect(settings.getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible()
+})
+
+test('a resting palm at the old footer location cannot select text, turn pages or interrupt pen ink', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Simultaneous pen/touch injection requires CDP; native iPad menus still need device validation.')
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { value: 'MacIntel' })
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 })
+  })
+  await openNotebook(page)
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  await page.getByRole('button', { name: 'Add page', exact: true }).click()
+  await pageSetting(page, 'Previous page')
+  const paper = await page.getByTestId('paper').boundingBox()
+  const viewport = await page.getByTestId('ink-viewport').boundingBox()
+  if (!paper || !viewport) throw new Error('Writing surface missing')
+  const palm = { x: viewport.x + 60, y: viewport.y + viewport.height - 20 }
+  expect(await page.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest('button,select,input,a')), palm)).toBe(false)
+  await page.evaluate(() => getSelection()?.removeAllRanges())
+  const pen = { x: paper.x + paper.width * 0.2, y: paper.y + paper.height * 0.3 }
+  const session = await context.newCDPSession(page)
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+  await session.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...pen, button: 'left', buttons: 1, pointerType: 'pen', force: 0.5, clickCount: 1 })
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 1, ...palm, radiusX: 35, radiusY: 25 }] })
+  await page.waitForTimeout(900)
+  await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pen.x + 100, y: pen.y, buttons: 1, pointerType: 'pen', force: 0.6 })
+  await session.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pen.x + 100, y: pen.y, button: 'left', buttons: 0, pointerType: 'pen', force: 0, clickCount: 1 })
+  await page.waitForTimeout(800)
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 1 of 2')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await page.evaluate(() => getSelection()?.toString() ?? '')).toBe('')
+  await expect.poll(async () => (await ink(page)).length).toBe(1)
+  expect((await ink(page))[0].points.at(-1)!.x).toBeGreaterThan(794 * 0.2 + 70 * 794 / paper.width)
+  const settings = await page.getByRole('button', { name: 'Page settings', exact: true }).boundingBox()
+  if (!settings) throw new Error('Page settings missing')
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 2, x: settings.x + settings.width / 2, y: settings.y + settings.height / 2 }] })
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect(page.getByRole('dialog', { name: 'Page settings', exact: true })).toBeVisible()
   await session.detach()
 })
 
