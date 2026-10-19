@@ -9,15 +9,29 @@ import { penPath } from './ink'
 const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
 
 describe('uniform, source-preserving PDF export', () => {
-  it('exports a new ballpoint with the same filled outline used by the screen renderer', async () => {
+  it('exports a new ballpoint with the same connected path and width used on screen', async () => {
     const note = createNotebook('Smooth pen', undefined, 'plain')
     const stroke = { id: crypto.randomUUID(), tool: 'pen' as const, color: '#253a43', width: 4, penStyle: 'ballpoint' as const, points: [{ x: 100, y: 100, pressure: 0.2 }, { x: 130, y: 110, pressure: 0.8 }, { x: 160, y: 100, pressure: 0.3 }] }
     note.pages[0].strokes = [stroke]
     const outlines = vi.spyOn(PDFPage.prototype, 'drawSvgPath')
     try {
       await buildNotebookPdf(note)
-      expect(outlines).toHaveBeenCalledWith(penPath(stroke), expect.objectContaining({ scale: 0.75 }))
+      expect(outlines).toHaveBeenCalledWith(penPath(stroke), expect.objectContaining({ scale: 0.75, borderWidth: 4, borderLineCap: 1 }))
     } finally { outlines.mockRestore() }
+  })
+  it('exports legacy pressure ink as one filled union without changing raw points', async () => {
+    const note = createNotebook('Legacy ink', undefined, 'plain')
+    const stroke = { id: crypto.randomUUID(), tool: 'pen' as const, color: '#253a43', width: 3, points: [{ x: 100, y: 100, pressure: 0.2 }, { x: 110, y: 100, pressure: 0.8 }, { x: 110, y: 100, pressure: 0.3 }, { x: 130, y: 100, pressure: 0.6 }] }
+    note.pages[0].strokes = [stroke]
+    const before = structuredClone(stroke)
+    const paths = vi.spyOn(PDFPage.prototype, 'drawSvgPath')
+    try {
+      const pdf = await buildNotebookPdf(note)
+      expect(pdf.length).toBeGreaterThan(100)
+      expect(paths).toHaveBeenCalledOnce()
+      expect(paths).toHaveBeenCalledWith(penPath(stroke), expect.objectContaining({ scale: 0.75 }))
+      expect(stroke).toEqual(before)
+    } finally { paths.mockRestore() }
   })
   it('exports stationary press/release contacts as visible circles, not zero-length lines', async () => {
     const note = createNotebook('Tap', undefined, 'plain')

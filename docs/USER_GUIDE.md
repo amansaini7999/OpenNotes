@@ -31,12 +31,18 @@ up to 1,000 folders, with names up to 100 characters.
 - **Show pages** toggles thumbnails. **Hide tools** controls the writing
   toolbar independently.
 - **Tool settings** contains ink colors and pen/eraser size.
-- New pen strokes use a smooth ballpoint outline with steady width by default.
+- New ballpoint strokes use one continuous, gently smoothed path with steady width.
   **Tool settings → Pen style** also offers a pressure-sensitive pen. Raw points
-  stay editable, and new outlines are shared by canvas, thumbnails and PDF export.
-- **Temporary pen** (`L`) is presentation ink: choose a 2, 5, 10 or 30 second
-  lifetime in Tool settings. It fades during the final 700 ms, never enters the
-  saved notebook or PDF export, and clears when leaving the page.
+  stay editable, and geometry is shared by canvas, thumbnails and PDF export.
+  Older pressure ink is filled as one connected shape instead of rasterizing
+  its individual segments separately; saved points and pressure stay unchanged.
+- **Images** (the arrow, `I`) selects pasted images for moving or resizing;
+  it is not a text-copy tool.
+- **Laser** (`L`, also named Temporary pen) leaves a disappearing presentation
+  trail. The toolbar shows its duration: **2 seconds** by default. Tool settings
+  offers 1, 2, 5, 10 or 30 seconds. Older parts disappear even while the Pencil
+  stays down; the remaining trail eases out during its final second. It never
+  enters the saved notebook, undo history or PDF export.
 - On iPad, swipe left/right with one or two fingers to turn a fitted page.
   Short, diagonal, vertical, cancelled, or pinching gestures do not turn pages.
   When zoomed beyond the viewport width, two fingers pan instead.
@@ -86,8 +92,11 @@ The current page indicator stays in the header. **Export PDF** is in the noteboo
 header. In the library, swipe a notebook's name to reveal Delete, or use the
 name row's actions button. Deletion always requires confirmation.
 
-The writing screen has no editable title field and does not allow native
-Copy/Look Up callouts. Rename deliberately through **Page settings → Rename
+The writing screen suppresses browser selection and callouts across the page,
+including status and notice banners. Native touch defaults on the writing
+surface are blocked separately from native scrolling in read mode.
+This cannot certify every iPadOS system gesture; physical-device testing is
+still needed. Rename deliberately through **Page settings → Rename
 notebook**; text selection is allowed only in that explicit dialog. Finger/palm
 contacts cannot activate editor controls during pen contact or the short
 post-pen guard interval; intentional Pencil, mouse and keyboard actions remain

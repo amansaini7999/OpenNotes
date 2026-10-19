@@ -68,6 +68,31 @@ test('writing chrome rejects selection and callouts without blocking notebook ti
   expect(await title.evaluate(element => element.dispatchEvent(new Event('selectstart', { bubbles: true, cancelable: true })))).toBe(true)
 })
 
+test('selection protection includes status text and clears native-style selection outside the editor', async ({ page }) => {
+  await openNotebook(page)
+  const status = page.getByTestId('save-status')
+  expect(await status.evaluate(element => getComputedStyle(element).webkitUserSelect)).toBe('none')
+  expect(await page.locator('body').evaluate(element => !element.dispatchEvent(new Event('selectstart', { bubbles: true, cancelable: true })))).toBe(true)
+  const surface = page.getByTestId('ink-viewport')
+  expect(await surface.evaluate(element => {
+    const event = new Event('touchstart', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'changedTouches', { value: [] })
+    return !element.dispatchEvent(event)
+  })).toBe(true)
+  await status.evaluate(element => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  expect(await page.evaluate(() => window.getSelection()!.rangeCount)).toBe(0)
+  await page.getByRole('button', { name: 'Back to notebooks', exact: true }).click()
+  expect(await page.locator('html').evaluate(element => element.classList.contains('writing-session'))).toBe(false)
+  expect(await page.getByRole('textbox', { name: 'Search notebooks' }).evaluate(element => element.dispatchEvent(new Event('selectstart', { bubbles: true, cancelable: true })))).toBe(true)
+})
+
 test('the writing surface has no bottom controls to hit with a resting palm', async ({ page }) => {
   await openNotebook(page)
   await expect(page.locator('.canvas-bottom')).toHaveCount(0)

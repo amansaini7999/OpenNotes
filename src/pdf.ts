@@ -1,6 +1,6 @@
 import { PDFDocument, LineCapStyle, degrees, rgb, type PDFPage, type PDFImage } from 'pdf-lib'
 import { decodeBase64, jpegOrientation } from './assets'
-import { dotRadius, isDotStroke, pressureWidth, type NotePage, type Notebook, type SourceAsset } from './model'
+import { dotRadius, isDotStroke, type NotePage, type Notebook, type SourceAsset } from './model'
 import { loadImage } from './render'
 import { penPath } from './ink'
 
@@ -24,13 +24,10 @@ function drawInk(output: PDFPage, page: NotePage, rect: Rect) {
     } else if (stroke.tool === 'highlighter') {
       const path = points.map((p, index) => `${index ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ')
       output.drawSvgPath(path, { x: rect.x, y: rect.y + rect.height, scale: rect.scale, borderColor: color(stroke.color), borderWidth: stroke.width * 5, borderOpacity: 0.3, borderLineCap: LineCapStyle.Round })
-    } else if (stroke.penStyle) {
-      output.drawSvgPath(penPath(stroke), { x: rect.x, y: rect.y + rect.height, scale: rect.scale, color: color(stroke.color) })
+    } else if (stroke.penStyle === 'ballpoint') {
+      output.drawSvgPath(penPath(stroke), { x: rect.x, y: rect.y + rect.height, scale: rect.scale, borderColor: color(stroke.color), borderWidth: stroke.width, borderLineCap: LineCapStyle.Round })
     } else {
-      for (let index = 1; index < points.length; index++) {
-        const a = points[index - 1], b = points[index]
-        output.drawLine({ start: position(a.x, a.y), end: position(b.x, b.y), thickness: pressureWidth(stroke.width, (a.pressure + b.pressure) / 2) * rect.scale, color: color(stroke.color), lineCap: LineCapStyle.Round })
-      }
+      output.drawSvgPath(penPath(stroke), { x: rect.x, y: rect.y + rect.height, scale: rect.scale, color: color(stroke.color) })
     }
   }
 }

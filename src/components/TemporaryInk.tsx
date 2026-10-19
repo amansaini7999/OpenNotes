@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { drawStroke } from '../render'
-import { temporaryOpacity, type TemporaryStroke } from '../temporary'
+import { temporaryFrame, temporaryOpacity, type TemporaryStroke } from '../temporary'
 
 interface Props {
   width: number
@@ -29,10 +29,11 @@ export function TemporaryInk({ width, height, strokes, onExpire }: Props) {
       const removed: string[] = []
       for (const entry of strokes) {
         const opacity = temporaryOpacity(entry.expiresAt, now)
-        if (!opacity) { removed.push(entry.stroke.id); continue }
+        const stroke = temporaryFrame(entry, now)
+        if (!opacity || !stroke) { removed.push(entry.stroke.id); continue }
         context.save()
         context.globalAlpha = opacity
-        drawStroke(context, entry.stroke)
+        drawStroke(context, stroke)
         context.restore()
       }
       if (removed.length) expired.current(removed)
