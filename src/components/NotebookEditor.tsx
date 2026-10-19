@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, Sparkles, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, SlidersHorizontal, Undo2, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, Eye, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, Sparkles, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, SlidersHorizontal, Undo2, X } from 'lucide-react'
 import { colors, createPage, insertPagesAfter, dotRadius, isDotStroke, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset, type PenStyle } from '../model'
 import { InkCanvas } from './InkCanvas'
 import { prefersPencilOnly } from '../input'
@@ -10,6 +10,9 @@ import { placeImage, moveImage } from '../images'
 import { loadImage } from '../render'
 import { useEditorSelectionGuard } from '../hooks/useEditorSelectionGuard'
 import { penPath } from '../ink'
+import { ScrollNotebook } from './ScrollNotebook'
+import { useNotebookNavigation } from '../hooks/useNotebookNavigation'
+import type { PenActivity } from '../page-layout'
 
 interface Props {
   notebook: Notebook
@@ -35,6 +38,12 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   useEditorSelectionGuard(editor)
   const [tabletLayout] = useState(() => usesTabletLayout(navigator.userAgent, navigator.platform, navigator.maxTouchPoints, matchMedia('(pointer: coarse)').matches))
   const [pageId, setPageId] = useState(notebook.pages[0].id)
+  const { navigation, choose: chooseNavigation } = useNotebookNavigation(onError)
+  const [readOnly, setReadOnly] = useState(false)
+  const [scrollZoom, setScrollZoom] = useState(1)
+  const [scrollTarget, setScrollTarget] = useState({ id: notebook.pages[0].id, serial: 0 })
+  const scrollViewport = useRef<HTMLDivElement>(null)
+  const sharedPen = useRef<PenActivity>({ id: null, lastAt: -Infinity })
   const [tool, setTool] = useState<Tool>('pen')
   const [color, setColor] = useState(colors[0])
   const [width, setWidth] = useState(3)
@@ -70,18 +79,28 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     onUpdate(note => ({ ...note, updatedAt: Date.now(), pages: note.pages.map(value => value.id === id ? update(value) : value) }))
   }, [onUpdate])
 
-  const remember = () => {
-    const previous = histories.current.get(page.id) ?? { undo: [], redo: [] }
-    histories.current.set(page.id, { undo: [...previous.undo.slice(-49), { strokes: page.strokes, images: page.images }], redo: [] })
+  const remember = (target: NotePage) => {
+    const previous = histories.current.get(target.id) ?? { undo: [], redo: [] }
+    histories.current.set(target.id, { undo: [...previous.undo.slice(-49), { strokes: target.strokes, images: target.images }], redo: [] })
     setHistoryVersion(value => value + 1)
   }
-  const commitStrokes = (strokes: Stroke[]) => { remember(); changePage(page.id, value => ({ ...value, strokes })) }
-  const commitImages = (images: PlacedImage[], sources: SourceAsset[] = []) => {
-    remember()
-    onUpdate(note => ({ ...note, updatedAt: Date.now(), sources: [...note.sources, ...sources], pages: note.pages.map(value => value.id === page.id ? { ...value, images } : value) }))
+  const commitStrokes = (id: string, strokes: Stroke[]) => {
+    if (readOnly) return
+    const target = notebook.pages.find(page => page.id === id)
+    if (!target) { onError('The edited page is no longer available.'); return }
+    remember(target)
+    changePage(id, value => ({ ...value, strokes }))
+  }
+  const commitImages = (id: string, images: PlacedImage[], sources: SourceAsset[] = []) => {
+    if (readOnly) return
+    const target = notebook.pages.find(page => page.id === id)
+    if (!target) { onError('The edited page is no longer available.'); return }
+    remember(target)
+    onUpdate(note => ({ ...note, updatedAt: Date.now(), sources: [...note.sources, ...sources], pages: note.pages.map(value => value.id === id ? { ...value, images } : value) }))
   }
 
   const undo = () => {
+    if (readOnly) return
     if (!history.undo.length) return
     const previous = history.undo.at(-1)!
     histories.current.set(page.id, { undo: history.undo.slice(0, -1), redo: [...history.redo, { strokes: page.strokes, images: page.images }] })
@@ -89,19 +108,21 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     setHistoryVersion(value => value + 1)
   }
   const redo = () => {
+    if (readOnly) return
     if (!history.redo.length) return
     const next = history.redo.at(-1)!
     histories.current.set(page.id, { undo: [...history.undo, { strokes: page.strokes, images: page.images }], redo: history.redo.slice(0, -1) })
     changePage(page.id, value => ({ ...value, ...next }))
     setHistoryVersion(value => value + 1)
   }
-  const actions = useRef({ undo, redo })
-  actions.current = { undo, redo }
+  const actions = useRef({ undo, redo, readOnly })
+  actions.current = { undo, redo, readOnly }
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLElement && (event.target.matches('input,textarea,select') || event.target.isContentEditable)) return
       if (document.querySelector('dialog[open]')) return
+      if (actions.current.readOnly) { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') event.preventDefault(); return }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault()
         if (event.shiftKey) actions.current.redo()
@@ -115,22 +136,28 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     return () => window.removeEventListener('keydown', keydown)
   }, [])
 
+  const goToPage = (id: string) => {
+    setPageId(id)
+    setScrollTarget(value => ({ id, serial: value.serial + 1 }))
+  }
   const addPage = () => {
+    if (readOnly) { onError('Exit read mode before adding pages.'); return }
     const next = createPage(page.template)
     onUpdate(note => insertPagesAfter(note, page.id, [next]))
-    setPageId(next.id)
+    goToPage(next.id)
     setTool('pen')
     setSelectedImageId(null)
     setPanel(null)
   }
   const insertFiles = async (files: File[]) => {
+    if (readOnly) { onError('Exit read mode before importing pages.'); return }
     const afterId = page.id
     setPanel(null)
     setImporting('Preparing pages…')
     try {
       const imported = await importPageFiles(files, 500 - notebook.pages.length, setImporting)
       onUpdate(note => insertPagesAfter(note, afterId, imported.pages, imported.sources))
-      setPageId(imported.pages[0].id)
+      goToPage(imported.pages[0].id)
       setTool('pen')
       setSelectedImageId(null)
     } catch (cause: unknown) {
@@ -138,6 +165,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     } finally { setImporting('') }
   }
   async function insertInlineImages(files: File[]) {
+    if (readOnly) { onError('Exit read mode before inserting images.'); return }
     if (importing) { onError('Wait for the current import to finish before pasting another image.'); return }
     setPanel(null)
     setImporting('Adding image to this page…')
@@ -149,7 +177,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
         const placed = placeImage(page, asset.id, image.naturalWidth, image.naturalHeight)
         return moveImage(placed, placed.x + index * 20, placed.y + index * 20, page)
       }))
-      commitImages([...page.images, ...placed], imported.sources)
+      commitImages(page.id, [...page.images, ...placed], imported.sources)
       setSelectedImageId(placed.at(-1)!.id)
       setTool('image')
     } catch (cause: unknown) { onError(cause instanceof Error ? cause.message : 'The image could not be inserted.') }
@@ -159,7 +187,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   inlineImporter.current = insertInlineImages
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (event.target instanceof HTMLElement && (event.target.closest('input,textarea,[contenteditable="true"]') || document.querySelector('dialog[open]'))) return
+      if (actions.current.readOnly || (event.target instanceof HTMLElement && (event.target.closest('input,textarea,[contenteditable="true"]') || document.querySelector('dialog[open]')))) return
       const files = Array.from(event.clipboardData?.files ?? []).filter(file => file.type.startsWith('image/')).map(file => {
         if (/\.(png|jpe?g|webp)$/i.test(file.name)) return file
         const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png'
@@ -189,6 +217,13 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     }
   }
   const fit = (mode: 'width' | 'page') => {
+    if (navigation === 'scroll') {
+      const viewport = scrollViewport.current
+      const widthScale = viewport ? (viewport.clientWidth - 32) / page.width : 1
+      const scale = viewport && mode === 'page' ? Math.min(widthScale, (viewport.clientHeight - 32) / page.height) : widthScale
+      setScrollZoom(Math.max(0.1, Math.min(2, scale / widthScale)))
+      return
+    }
     setFitMode(mode)
     setFitToken(value => value + 1)
   }
@@ -197,10 +232,12 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
     if (!next) return
     setPageTurn(direction)
     setZoomCommand({ factor: 1, serial: 0 })
-    setPageId(next.id)
+    goToPage(next.id)
   }
 
-  return <main className="editor" ref={editor} data-history-version={historyVersion}>
+  const renderPage = (target: NotePage, renderScale = 1, scroll?: (dx: number, dy: number) => void) => <InkCanvas key={target.id} page={target} sources={notebook.sources} tool={tool} color={activeColor} width={activeWidth} penStyle={penStyle} temporarySeconds={temporarySeconds} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={scroll ? 'width' : fitMode} fitToken={fitToken} zoomCommand={scroll ? { factor: 1, serial: 0 } : zoomCommand} onChange={strokes => commitStrokes(target.id, strokes)} onZoom={scroll ? undefined : setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={!scroll && tabletLayout} pageTurn={!scroll && tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={images => commitImages(target.id, images)} readOnly={readOnly} sharedPen={sharedPen} onExternalScroll={scroll} renderScale={renderScale} />
+  const zoomBy = (factor: number) => navigation === 'scroll' ? setScrollZoom(value => Math.max(0.1, Math.min(2, value * factor))) : setZoomCommand(value => ({ factor, serial: value.serial + 1 }))
+  return <main className="editor" ref={editor} data-history-version={historyVersion} data-read-only={readOnly}>
     <header className="editor-header">
       <button className="icon-button" aria-label="Back to notebooks" onClick={onBack}><ArrowLeft size={20} /></button>
       <div className="editor-title">
@@ -209,12 +246,16 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       </div>
       {saveIndicator}
       <button className="icon-button" aria-label={pagesOpen ? 'Hide pages' : 'Show pages'} aria-expanded={pagesOpen} aria-controls="notebook-pages" onClick={() => setPagesOpen(value => !value)}><PanelLeft size={20} /></button>
-      <button className="icon-button" aria-label="Add content" title="Add content" onClick={() => setPanel('insert')}><FilePlus2 size={20} /></button>
-      <button className="icon-button" aria-label={toolsHidden ? 'Show tools' : 'Hide tools'} aria-pressed={toolsHidden} onClick={() => setToolsHidden(value => !value)}><PenLine size={19} /></button>
+      <button className="icon-button" aria-label="Add content" title="Add content" disabled={readOnly} onClick={() => setPanel('insert')}><FilePlus2 size={20} /></button>
+      <button className="icon-button" aria-label={toolsHidden ? 'Show tools' : 'Hide tools'} aria-pressed={toolsHidden} disabled={readOnly} onClick={() => setToolsHidden(value => !value)}><PenLine size={19} /></button>
+      <button className={`icon-button ${readOnly ? 'read-mode-active' : ''}`} aria-label={readOnly ? 'Edit mode' : 'Read mode'} aria-pressed={readOnly} title={readOnly ? 'Return to editing' : 'Read without changing notes'} onClick={() => {
+        if (sharedPen.current.id !== null) { onError('Lift the Pencil before changing read mode.'); return }
+        setReadOnly(value => !value); setPanel(null); setSelectedImageId(null)
+      }}><Eye size={19} /><span className="read-mode-label">{readOnly ? 'Edit' : 'Read'}</span></button>
       <button className="icon-button" aria-label="Page settings" title="Page settings" onClick={() => setPanel('page')}><SlidersHorizontal size={19} /></button>
       <button className="icon-button" aria-label="Export PDF" onClick={onPdf}><FileDown size={20} /></button>
     </header>
-    {!toolsHidden && <div className="ink-toolbar" role="toolbar" aria-label="Drawing tools">
+    {!toolsHidden && !readOnly && <div className="ink-toolbar" role="toolbar" aria-label="Drawing tools">
       <div className="tool-group">
         {tools.map(item => <button key={item.id} className={`tool-button ${tool === item.id ? 'selected' : ''}`} aria-label={item.name} aria-pressed={tool === item.id} title={`${item.name} (${item.shortcut})`} onClick={() => setTool(item.id)}><item.icon size={21} /></button>)}
       </div>
@@ -229,14 +270,16 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       {pagesOpen && <aside className="pages-panel" id="notebook-pages" aria-label="Notebook pages">
         <div className="pages-heading"><span>PAGES</span><button className="icon-button" aria-label="Close pages" onClick={() => setPagesOpen(false)}><X size={17} /></button></div>
         <div className="page-list">
-          {notebook.pages.map((value, index) => <button className={`page-tile ${page.id === value.id ? 'active' : ''}`} key={value.id} onClick={() => setPageId(value.id)} aria-label={`Page ${index + 1}`} aria-current={page.id === value.id ? 'page' : undefined}>
+          {notebook.pages.map((value, index) => <button className={`page-tile ${page.id === value.id ? 'active' : ''}`} key={value.id} onClick={() => goToPage(value.id)} aria-label={`Page ${index + 1}`} aria-current={page.id === value.id ? 'page' : undefined}>
             <PagePreview page={value} sources={notebook.sources} /><span>{String(index + 1).padStart(2, '0')}</span>
           </button>)}
         </div>
-        <button className="add-page" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={16} /> New page</button>
+        <button className="add-page" aria-label="Add page" onClick={addPage} disabled={readOnly || notebook.pages.length >= 500}><Plus size={16} /> New page</button>
       </aside>}
       <div className="canvas-workspace">
-        <InkCanvas key={page.id} page={page} sources={notebook.sources} tool={tool} color={activeColor} width={activeWidth} penStyle={penStyle} temporarySeconds={temporarySeconds} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={tabletLayout} pageTurn={tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={commitImages} />
+        {navigation === 'scroll'
+          ? <ScrollNotebook pages={notebook.pages} viewport={scrollViewport} zoom={scrollZoom} target={scrollTarget} pen={sharedPen} onActive={setPageId} renderPage={renderPage} />
+          : renderPage(page)}
       </div>
     </div>
     <input className="visually-hidden" ref={importInput} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" aria-label="Insert PDF or images as pages" onChange={event => {
@@ -266,17 +309,24 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       <button className="secondary" onClick={() => setPanel('insert')}><ArrowLeft size={16} /> Back</button>
     </Dialog>}
     {panel === 'page' && <Dialog title="Page settings" onClose={() => setPanel(null)}>
-      <button className="secondary" onClick={() => { setRenameDraft(notebook.title); setPanel('rename') }}><PenLine size={16} /> Rename notebook</button>
-      <label className="field">Paper type<select aria-label="Paper template" disabled={Boolean(page.background)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select></label>
+      <button className="secondary" disabled={readOnly} onClick={() => { setRenameDraft(notebook.title); setPanel('rename') }}><PenLine size={16} /> Rename notebook</button>
+      <label className="field">Page navigation<select aria-label="Page navigation mode" value={navigation} onChange={event => {
+        const value = event.target.value
+        if (sharedPen.current.id !== null) { onError('Finish the current pen stroke before changing page navigation.'); return }
+        if (value === 'swipe' || value === 'scroll') {
+          chooseNavigation(value); setScrollTarget(target => ({ id: page.id, serial: target.serial + 1 })); setScrollZoom(1); setZoomCommand({ factor: 1, serial: 0 }); setPageTurn(null)
+        }
+      }}><option value="swipe">Swipe pages — notebook</option><option value="scroll">Scroll vertically — document</option></select></label>
+      <label className="field">Paper type<select aria-label="Paper template" disabled={readOnly || Boolean(page.background)} value={page.template} onChange={e => changePage(page.id, value => ({ ...value, template: e.target.value as Template }))}><option value="dotted">Dotted paper</option><option value="ruled">Ruled paper</option><option value="plain">Plain paper</option></select></label>
       <div className="page-settings-row"><span>Page</span><div className="page-navigation">
-        <button className="icon-button" aria-label="Previous page" disabled={pageIndex === 0} onClick={() => setPageId(notebook.pages[pageIndex - 1].id)}><ChevronLeft size={18} /></button>
+        <button className="icon-button" aria-label="Previous page" disabled={pageIndex === 0} onClick={() => goToPage(notebook.pages[pageIndex - 1].id)}><ChevronLeft size={18} /></button>
         <span>Page {pageIndex + 1} of {notebook.pages.length}</span>
-        <button className="icon-button" aria-label="Next page" disabled={pageIndex === notebook.pages.length - 1} onClick={() => setPageId(notebook.pages[pageIndex + 1].id)}><ChevronRight size={18} /></button>
+        <button className="icon-button" aria-label="Next page" disabled={pageIndex === notebook.pages.length - 1} onClick={() => goToPage(notebook.pages[pageIndex + 1].id)}><ChevronRight size={18} /></button>
       </div></div>
       <div className="page-settings-row"><span>Zoom</span><div className="zoom-controls">
-        <button className="icon-button" aria-label="Zoom out" onClick={() => setZoomCommand(value => ({ factor: 0.8, serial: value.serial + 1 }))}><Minus size={16} /></button>
-        <span aria-live="polite">{zoom}%</span>
-        <button className="icon-button" aria-label="Zoom in" onClick={() => setZoomCommand(value => ({ factor: 1.25, serial: value.serial + 1 }))}><Plus size={16} /></button>
+        <button className="icon-button" aria-label="Zoom out" onClick={() => zoomBy(0.8)}><Minus size={16} /></button>
+        <span aria-live="polite">{navigation === 'scroll' ? Math.round(scrollZoom * 100) : zoom}%</span>
+        <button className="icon-button" aria-label="Zoom in" onClick={() => zoomBy(1.25)}><Plus size={16} /></button>
         <button className="icon-button" aria-label="Fit page" onClick={() => fit('page')}><Maximize size={17} /></button>
         <button className="fit-width" aria-label="Fit width" onClick={() => fit('width')}>Width</button>
       </div></div>

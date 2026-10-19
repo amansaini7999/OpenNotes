@@ -172,7 +172,7 @@ export default function App() {
             persistence.error}
         </p>
         <p>Notes are stored in this browser. Clearing site data or storage eviction can delete them. Export editable backups regularly; there is no automatic cloud sync.</p>
-        <p>On iPad, swipe left/right with one or two fingers to turn a fitted page. Pinch to zoom; use two fingers to pan when zoomed. Touch navigation pauses during pen input and briefly afterward.</p>
+        <p>Choose swipe pages or vertical scrolling in Page settings. Read mode prevents edits and allows finger scrolling. On iPad in swipe mode, swipe left/right to turn a fitted page; pinch to zoom. Touch navigation pauses during pen input and briefly afterward.</p>
         <div className="document-actions"><InstallApp offlineReady={pwa.offlineReady} /></div>
         <p><a href="https://github.com/amansaini7999/OpenNotes/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noreferrer">User guide and keyboard shortcuts</a></p>
       </div>
