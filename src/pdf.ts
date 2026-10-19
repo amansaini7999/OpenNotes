@@ -2,6 +2,7 @@ import { PDFDocument, LineCapStyle, degrees, rgb, type PDFPage, type PDFImage } 
 import { decodeBase64, jpegOrientation } from './assets'
 import { dotRadius, isDotStroke, pressureWidth, type NotePage, type Notebook, type SourceAsset } from './model'
 import { loadImage } from './render'
+import { penPath } from './ink'
 
 type Rect = { x: number; y: number; width: number; height: number; scale: number }
 
@@ -23,6 +24,8 @@ function drawInk(output: PDFPage, page: NotePage, rect: Rect) {
     } else if (stroke.tool === 'highlighter') {
       const path = points.map((p, index) => `${index ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ')
       output.drawSvgPath(path, { x: rect.x, y: rect.y + rect.height, scale: rect.scale, borderColor: color(stroke.color), borderWidth: stroke.width * 5, borderOpacity: 0.3, borderLineCap: LineCapStyle.Round })
+    } else if (stroke.penStyle) {
+      output.drawSvgPath(penPath(stroke), { x: rect.x, y: rect.y + rect.height, scale: rect.scale, color: color(stroke.color) })
     } else {
       for (let index = 1; index < points.length; index++) {
         const a = points[index - 1], b = points[index]

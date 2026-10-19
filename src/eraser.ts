@@ -1,4 +1,4 @@
-import { distanceToSegment, pressureWidth, type Point, type Stroke } from './model'
+import { distanceToSegment, strokeRadiusAt, type Point, type Stroke } from './model'
 
 type Interval = [number, number]
 const EPSILON = 1e-8
@@ -58,9 +58,7 @@ function mergeIntervals(intervals: Interval[]): Interval[] {
 
 export function eraseStrokePoints(stroke: Stroke, trail: Point[], radius: number): Point[][] | null {
   if (!trail.length) return null
-  const halfWidth = (a: Point, b: Point) => stroke.tool === 'highlighter'
-    ? stroke.width * 2.5
-    : Math.max(pressureWidth(stroke.width, a.pressure), pressureWidth(stroke.width, b.pressure)) / 2
+  const halfWidth = (a: Point, b: Point) => Math.max(strokeRadiusAt(stroke, a.pressure), strokeRadiusAt(stroke, b.pressure))
   if (stroke.points.length === 1) {
     const point = stroke.points[0]
     const hit = trail.some((c, index) => distanceToSegment(point, c, trail[Math.min(index + 1, trail.length - 1)]) <= radius + halfWidth(point, point))

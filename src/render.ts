@@ -1,4 +1,6 @@
 import { dotRadius, isDotStroke, pressureWidth, type NotePage, type Stroke } from './model'
+import { penPath } from './ink'
+const canvasPaths = new WeakMap<Stroke, Path2D>()
 
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   if (!stroke.points.length) return
@@ -9,16 +11,20 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.lineJoin = 'round'
   if (isDotStroke(stroke)) {
     const point = stroke.points[0]
-    ctx.globalAlpha = stroke.tool === 'highlighter' ? 0.3 : 1
+    ctx.globalAlpha *= stroke.tool === 'highlighter' ? 0.3 : 1
     ctx.beginPath()
     ctx.arc(point.x, point.y, dotRadius(stroke), 0, Math.PI * 2)
     ctx.fill()
   } else if (stroke.tool === 'highlighter') {
-    ctx.globalAlpha = 0.3
+    ctx.globalAlpha *= 0.3
     ctx.lineWidth = stroke.width * 5
     ctx.beginPath()
     stroke.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y))
     ctx.stroke()
+  } else if (stroke.penStyle) {
+    let path = canvasPaths.get(stroke)
+    if (!path) { path = new Path2D(penPath(stroke)); canvasPaths.set(stroke, path) }
+    ctx.fill(path)
   } else {
     for (let i = 1; i < stroke.points.length; i++) {
       const a = stroke.points[i - 1], b = stroke.points[i]

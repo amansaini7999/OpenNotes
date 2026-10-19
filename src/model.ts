@@ -4,7 +4,8 @@ export const PAGE_WIDTH = 794
 export const PAGE_HEIGHT = 1123
 export const colors = ['#253a43', '#327769', '#517bcb', '#ba6066', '#d5a24c', '#8c6bb1']
 export const coverColors = ['#327769', '#4b668c', '#ad6863', '#b39464', '#807397', '#51655d']
-export type Tool = 'pen' | 'highlighter' | 'eraser' | 'hand' | 'image'
+export type Tool = 'pen' | 'highlighter' | 'eraser' | 'hand' | 'image' | 'temporary'
+export type PenStyle = 'ballpoint' | 'pressure'
 
 const pointSchema = z.object({
   x: z.number().finite().min(-100).max(2100),
@@ -16,6 +17,7 @@ const strokeSchema = z.object({
   tool: z.enum(['pen', 'highlighter']),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   width: z.number().min(0.5).max(40),
+  penStyle: z.enum(['ballpoint', 'pressure']).optional(),
   points: z.array(pointSchema).min(1),
 })
 const backgroundSchema = z.string().max(8_000_000).regex(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/)
@@ -190,7 +192,14 @@ export function isDotStroke(stroke: Pick<Stroke, 'points'>): boolean {
 
 export function dotRadius(stroke: Stroke): number {
   const pressure = stroke.points.reduce((maximum, point) => Math.max(maximum, point.pressure), 0)
-  return (stroke.tool === 'highlighter' ? stroke.width * 5 : pressureWidth(stroke.width, pressure)) / 2
+  return strokeRadiusAt(stroke, pressure)
+}
+
+export function strokeRadiusAt(stroke: Stroke, pressure: number): number {
+  if (stroke.tool === 'highlighter') return stroke.width * 2.5
+  if (stroke.penStyle === 'ballpoint') return stroke.width / 2
+  if (stroke.penStyle === 'pressure') return stroke.width * (0.75 + 0.5 * Math.max(0, Math.min(1, pressure))) / 2
+  return pressureWidth(stroke.width, pressure) / 2
 }
 
 export function safeFilename(title: string): string {
