@@ -29,6 +29,8 @@ separate from storage, file processing, and browser lifecycle effects.
 | [model.ts](../src/model.ts) | Document types, validation, and transformations |
 | [storage.ts](../src/storage.ts) | Atomic IndexedDB persistence and serialized writes |
 | [render.ts](../src/render.ts) | Canvas rendering |
+| [ink.ts](../src/ink.ts) | Shared smooth stroke outlines using MIT-licensed perfect-freehand |
+| [temporary.ts](../src/temporary.ts) | Nonpersistent presentation stroke timing |
 | [eraser.ts](../src/eraser.ts) | Partial ink erasing |
 | [files.ts](../src/files.ts) | Local PDF/image import and file export |
 | [assets.ts](../src/assets.ts) | Original source bytes, MIME detection and JPEG orientation |

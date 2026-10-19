@@ -9,3 +9,6 @@ for (const folder of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) {
   cpSync(join(root, 'node_modules', 'pdfjs-dist', folder), join(target, folder), { recursive: true })
 }
 cpSync(join(root, 'node_modules', 'pdfjs-dist', 'LICENSE'), join(target, 'LICENSE'))
+const licenses = join(root, 'public', 'licenses')
+mkdirSync(licenses, { recursive: true })
+cpSync(join(root, 'node_modules', 'perfect-freehand', 'LICENSE'), join(licenses, 'perfect-freehand.txt'))

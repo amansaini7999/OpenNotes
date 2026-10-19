@@ -11,4 +11,5 @@ playwright-report/
 *.zip
 *.goodnotes
 public/pdfjs/
+public/licenses/
 .DS_Store

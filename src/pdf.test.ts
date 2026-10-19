@@ -4,10 +4,21 @@ import { PDFDocument, PDFPage, PDFName, PDFNumber, PDFRawStream, degrees } from 
 import { buildNotebookPdf, fitContent } from './pdf'
 import { createSourceAsset, decodeBase64, encodeBase64, jpegOrientation } from './assets'
 import { backupSchema, createNotebook, createPage, emptyLibrary, mergeBackup } from './model'
+import { penPath } from './ink'
 
 const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
 
 describe('uniform, source-preserving PDF export', () => {
+  it('exports a new ballpoint with the same filled outline used by the screen renderer', async () => {
+    const note = createNotebook('Smooth pen', undefined, 'plain')
+    const stroke = { id: crypto.randomUUID(), tool: 'pen' as const, color: '#253a43', width: 4, penStyle: 'ballpoint' as const, points: [{ x: 100, y: 100, pressure: 0.2 }, { x: 130, y: 110, pressure: 0.8 }, { x: 160, y: 100, pressure: 0.3 }] }
+    note.pages[0].strokes = [stroke]
+    const outlines = vi.spyOn(PDFPage.prototype, 'drawSvgPath')
+    try {
+      await buildNotebookPdf(note)
+      expect(outlines).toHaveBeenCalledWith(penPath(stroke), expect.objectContaining({ scale: 0.75 }))
+    } finally { outlines.mockRestore() }
+  })
   it('exports stationary press/release contacts as visible circles, not zero-length lines', async () => {
     const note = createNotebook('Tap', undefined, 'plain')
     note.pages[0].strokes = [{ id: crypto.randomUUID(), tool: 'pen', color: '#253a43', width: 3, points: [{ x: 100, y: 100, pressure: 0.2 }, { x: 100, y: 100, pressure: 0.8 }] }]

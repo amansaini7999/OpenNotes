@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, SlidersHorizontal, Undo2, X } from 'lucide-react'
-import { colors, createPage, insertPagesAfter, dotRadius, isDotStroke, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset } from '../model'
+import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, Sparkles, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, SlidersHorizontal, Undo2, X } from 'lucide-react'
+import { colors, createPage, insertPagesAfter, dotRadius, isDotStroke, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset, type PenStyle } from '../model'
 import { InkCanvas } from './InkCanvas'
 import { prefersPencilOnly } from '../input'
 import { importPageFiles } from '../files'
@@ -9,6 +9,7 @@ import { usesTabletLayout, type PageTurn } from '../navigation'
 import { placeImage, moveImage } from '../images'
 import { loadImage } from '../render'
 import { useEditorSelectionGuard } from '../hooks/useEditorSelectionGuard'
+import { penPath } from '../ink'
 
 interface Props {
   notebook: Notebook
@@ -26,6 +27,7 @@ const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[
   { id: 'eraser', name: 'Eraser', icon: Eraser, shortcut: 'E' },
   { id: 'hand', name: 'Pan', icon: Hand, shortcut: 'V' },
   { id: 'image', name: 'Select images', icon: MousePointer2, shortcut: 'I' },
+  { id: 'temporary', name: 'Temporary pen', icon: Sparkles, shortcut: 'L' },
 ]
 
 export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, saveIndicator }: Props) {
@@ -36,6 +38,10 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const [tool, setTool] = useState<Tool>('pen')
   const [color, setColor] = useState(colors[0])
   const [width, setWidth] = useState(3)
+  const [penStyle, setPenStyle] = useState<PenStyle>('ballpoint')
+  const [temporarySeconds, setTemporarySeconds] = useState(5)
+  const [temporaryColor, setTemporaryColor] = useState('#e85d4a')
+  const [temporaryWidth, setTemporaryWidth] = useState(4)
   const [eraserRadius, setEraserRadius] = useState(18)
   const [penOnly, setPenOnly] = useState(() => prefersPencilOnly(navigator.userAgent, navigator.platform, navigator.maxTouchPoints))
   const [zoom, setZoom] = useState(100)
@@ -56,6 +62,9 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
   const page = notebook.pages.find(value => value.id === pageId) ?? notebook.pages[0]
   const history = histories.current.get(page.id) ?? { undo: [], redo: [] }
   const pageIndex = notebook.pages.findIndex(value => value.id === page.id)
+  const activeColor = tool === 'temporary' ? temporaryColor : color
+  const activeWidth = tool === 'temporary' ? temporaryWidth : width
+  const palette = tool === 'temporary' ? ['#e85d4a', '#ffd43b', '#5baeff', '#e15cff'] : colors
 
   const changePage = useCallback((id: string, update: (page: NotePage) => NotePage) => {
     onUpdate(note => ({ ...note, updatedAt: Date.now(), pages: note.pages.map(value => value.id === id ? update(value) : value) }))
@@ -209,7 +218,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       <div className="tool-group">
         {tools.map(item => <button key={item.id} className={`tool-button ${tool === item.id ? 'selected' : ''}`} aria-label={item.name} aria-pressed={tool === item.id} title={`${item.name} (${item.shortcut})`} onClick={() => setTool(item.id)}><item.icon size={21} /></button>)}
       </div>
-      <button className="tool-button settings-button" aria-label="Tool settings" onClick={() => setPanel('tools')}><span className="current-ink" style={{ background: color }} /><Settings2 size={17} /></button>
+      <button className="tool-button settings-button" aria-label="Tool settings" onClick={() => setPanel('tools')}><span className="current-ink" style={{ background: activeColor }} /><Settings2 size={17} /></button>
       <span className="toolbar-divider" />
       <div className="tool-group">
         <button className="tool-button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!history.undo.length} onClick={undo}><Undo2 size={20} /></button>
@@ -227,7 +236,7 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
         <button className="add-page" aria-label="Add page" onClick={addPage} disabled={notebook.pages.length >= 500}><Plus size={16} /> New page</button>
       </aside>}
       <div className="canvas-workspace">
-        <InkCanvas key={page.id} page={page} sources={notebook.sources} tool={tool} color={color} width={width} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={tabletLayout} pageTurn={tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={commitImages} />
+        <InkCanvas key={page.id} page={page} sources={notebook.sources} tool={tool} color={activeColor} width={activeWidth} penStyle={penStyle} temporarySeconds={temporarySeconds} eraserRadius={eraserRadius} penOnly={penOnly} fitMode={fitMode} fitToken={fitToken} zoomCommand={zoomCommand} onChange={commitStrokes} onZoom={setZoom} onError={onError} onPenDetected={() => setPenOnly(true)} pageSwipes={tabletLayout} pageTurn={tabletLayout ? pageTurn : null} onPageTurn={turnPage} selectedImageId={selectedImageId} onImageSelect={setSelectedImageId} onImagesChange={commitImages} />
       </div>
     </div>
     <input className="visually-hidden" ref={importInput} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" aria-label="Insert PDF or images as pages" onChange={event => {
@@ -285,8 +294,13 @@ export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, sav
       </form>
     </Dialog>}
     {panel === 'tools' && <Dialog title="Tool settings" onClose={() => setPanel(null)}>
-      {tool !== 'eraser' && <div className="tool-group color-group" aria-label="Ink colors">{colors.map(value => <button key={value} className={`color-swatch ${value === color ? 'active' : ''}`} style={{ '--swatch': value } as React.CSSProperties} aria-label={`Ink color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} />)}</div>}
-      <label className="field">{tool === 'eraser' ? 'Eraser size' : 'Stroke width'}<input aria-label={tool === 'eraser' ? 'Eraser size' : 'Stroke width'} type="range" min={tool === 'eraser' ? 4 : 1} max={tool === 'eraser' ? 40 : 8} step={tool === 'eraser' ? 2 : 0.5} value={tool === 'eraser' ? eraserRadius : width} onChange={e => tool === 'eraser' ? setEraserRadius(Number(e.target.value)) : setWidth(Number(e.target.value))} /></label>
+      {tool !== 'eraser' && <div className="tool-group color-group" aria-label="Ink colors">{palette.map(value => <button key={value} className={`color-swatch ${value === activeColor ? 'active' : ''}`} style={{ '--swatch': value } as React.CSSProperties} aria-label={`Ink color ${value}`} aria-pressed={activeColor === value} onClick={() => tool === 'temporary' ? setTemporaryColor(value) : setColor(value)} />)}</div>}
+      {tool === 'pen' && <label className="field">Pen style<select aria-label="Pen style" value={penStyle} onChange={event => {
+        const style = event.target.value
+        if (style === 'ballpoint' || style === 'pressure') setPenStyle(style)
+      }}><option value="ballpoint">Ballpoint — steady width</option><option value="pressure">Pressure pen</option></select></label>}
+      {tool === 'temporary' && <label className="field">Disappear after<select aria-label="Temporary ink lifetime" value={temporarySeconds} onChange={event => setTemporarySeconds(Number(event.target.value))}><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="30">30 seconds</option></select><span>Presentation ink fades away and is never saved or exported.</span></label>}
+      <label className="field">{tool === 'eraser' ? 'Eraser size' : 'Stroke width'}<input aria-label={tool === 'eraser' ? 'Eraser size' : 'Stroke width'} type="range" min={tool === 'eraser' ? 4 : 1} max={tool === 'eraser' ? 40 : 8} step={tool === 'eraser' ? 2 : 0.5} value={tool === 'eraser' ? eraserRadius : activeWidth} onChange={e => tool === 'eraser' ? setEraserRadius(Number(e.target.value)) : tool === 'temporary' ? setTemporaryWidth(Number(e.target.value)) : setWidth(Number(e.target.value))} /></label>
     </Dialog>}
   </main>
 }
@@ -302,6 +316,7 @@ function PagePreview({ page, sources }: { page: NotePage; sources: SourceAsset[]
     })}
     {page.strokes.map(stroke => isDotStroke(stroke)
       ? <circle key={stroke.id} cx={stroke.points[0].x} cy={stroke.points[0].y} r={dotRadius(stroke)} fill={stroke.color} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} />
+      : stroke.tool === 'pen' && stroke.penStyle ? <path key={stroke.id} d={penPath(stroke)} fill={stroke.color} />
       : <polyline key={stroke.id} points={stroke.points.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={stroke.color} strokeWidth={stroke.tool === 'highlighter' ? stroke.width * 5 : stroke.width} opacity={stroke.tool === 'highlighter' ? 0.3 : 1} strokeLinecap="round" strokeLinejoin="round" />)}
   </svg>
 }

@@ -9,6 +9,12 @@
 - **Show pages** toggles thumbnails. **Hide tools** controls the writing
   toolbar independently.
 - **Tool settings** contains ink colors and pen/eraser size.
+- New pen strokes use a smooth ballpoint outline with steady width by default.
+  **Tool settings → Pen style** also offers a pressure-sensitive pen. Raw points
+  stay editable, and new outlines are shared by canvas, thumbnails and PDF export.
+- **Temporary pen** (`L`) is presentation ink: choose a 2, 5, 10 or 30 second
+  lifetime in Tool settings. It fades during the final 700 ms, never enters the
+  saved notebook or PDF export, and clears when leaving the page.
 - On iPad, swipe left/right with one or two fingers to turn a fitted page.
   Short, diagonal, vertical, cancelled, or pinching gestures do not turn pages.
   When zoomed beyond the viewport width, two fingers pan instead.
@@ -131,5 +137,6 @@ collaboration are not currently included.
 | Eraser | `E` |
 | Pan | `V` |
 | Select images | `I` |
+| Temporary pen | `L` |
 | Undo | `Ctrl` / `Cmd` + `Z` |
 | Redo | `Ctrl` / `Cmd` + `Shift` + `Z` |

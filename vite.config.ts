@@ -32,7 +32,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2,bcmap,ttf,pfb,wasm,icc}', 'pdfjs/**/LICENSE*'],
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2,bcmap,ttf,pfb,wasm,icc}', 'pdfjs/**/LICENSE*', 'licenses/*.txt'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,

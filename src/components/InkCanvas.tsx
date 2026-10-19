@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { drawStroke, loadImage, paintPage } from '../render'
-import { type NotePage, type Point, type Stroke, type Tool, type SourceAsset, type PlacedImage } from '../model'
+import { type NotePage, type Point, type Stroke, type Tool, type SourceAsset, type PlacedImage, type PenStyle } from '../model'
 import { eraseInk } from '../eraser'
 import { suppressTouch } from '../input'
 import { horizontalPageTurn, type PageTurn } from '../navigation'
 import { ImageSelection } from './ImageSelection'
+import { TemporaryInk } from './TemporaryInk'
+import type { TemporaryStroke } from '../temporary'
 
 type View = { x: number; y: number; scale: number }
 type Position = { x: number; y: number }
@@ -31,9 +33,11 @@ interface Props {
   selectedImageId: string | null
   onImageSelect: (id: string | null) => void
   onImagesChange: (images: PlacedImage[]) => void
+  penStyle?: PenStyle
+  temporarySeconds?: number
 }
 
-export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange }: Props) {
+export function InkCanvas({ page, sources, tool, color, width, eraserRadius, penOnly, fitMode, fitToken, zoomCommand, onChange, onZoom, onError, onPenDetected, pageSwipes, pageTurn, onPageTurn, selectedImageId, onImageSelect, onImagesChange, penStyle = 'ballpoint', temporarySeconds = 5 }: Props) {
   const viewport = useRef<HTMLDivElement>(null)
   const committed = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
@@ -41,15 +45,15 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   const imageCache = useRef(new Map<string, HTMLImageElement>())
   const [inlineImages, setInlineImages] = useState<ReadonlyMap<string, HTMLImageElement>>(imageCache.current)
   const [imagePreview, setImagePreview] = useState<PlacedImage | null>(null)
+  const [temporary, setTemporary] = useState<TemporaryStroke[]>([])
   const inlineKey = page.images.map(image => image.assetId).join('|')
   const strokesRef = useRef(page.strokes)
-  const renderedPoints = useRef(0)
   const lastPenAt = useRef(-Infinity)
   const detectedPen = useRef(false)
   const eraserPosition = useRef<Point | null>(null)
   const viewRef = useRef<View>({ x: 0, y: 0, scale: 1 })
   const [view, setView] = useState(viewRef.current)
-  const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean } | null>(null)
+  const active = useRef<{ id: number; type: string; stroke: Stroke; eraser: boolean; temporary: boolean; lifetime: number } | null>(null)
   const lastPointer = useRef<PointerEvent | null>(null)
   const inputHandlers = useRef<{ move: (event: PointerEvent) => void; finish: (event: PointerEvent, cancelled: boolean) => void } | null>(null)
   const touches = useRef(new Map<number, Position>())
@@ -75,7 +79,6 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       ctx.restore()
     }
-    renderedPoints.current = 0
   }
 
   const drawLive = () => {
@@ -85,16 +88,8 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     if (!canvas || !ctx) return
     const ratio = canvas.width / page.width
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    if (stroke && !stroke.eraser && stroke.stroke.tool === 'pen') {
-      const points = stroke.stroke.points
-      if (points.length > renderedPoints.current) {
-        drawStroke(ctx, { ...stroke.stroke, points: points.slice(Math.max(0, renderedPoints.current - 1)) })
-        renderedPoints.current = points.length
-      }
-      return
-    }
     ctx.clearRect(0, 0, page.width, page.height)
-    if (stroke && !stroke.eraser) drawStroke(ctx, stroke.stroke)
+    if (stroke && !stroke.eraser) drawStroke(ctx, { ...stroke.stroke })
     if (stroke?.eraser && stroke.stroke.points.length) {
       paintCommitted(eraseInk(strokesRef.current, stroke.stroke.points, eraserRadius))
     }
@@ -184,7 +179,6 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width
         canvas.height = height
-        if (canvas === live.current) renderedPoints.current = 0
       }
     }
     const ctx = committed.current.getContext('2d')
@@ -282,7 +276,9 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       id: event.pointerId,
       type: event.pointerType,
       eraser: tool === 'eraser',
-      stroke: { id: crypto.randomUUID(), tool: tool === 'highlighter' ? 'highlighter' : 'pen', color, width, points: [pointFrom(event.nativeEvent)] },
+      temporary: tool === 'temporary',
+      lifetime: temporarySeconds * 1000,
+      stroke: { id: crypto.randomUUID(), tool: tool === 'highlighter' ? 'highlighter' : 'pen', color, width, penStyle: tool === 'temporary' ? 'ballpoint' : penStyle, points: [pointFrom(event.nativeEvent)] },
     }
     lastPointer.current = event.nativeEvent
     clearLive()
@@ -377,6 +373,10 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
       point.pressure = stroke.stroke.points.at(-1)!.pressure
       stroke.stroke.points.push(point)
     }
+    if (stroke.temporary) {
+      setTemporary(value => [...value, { stroke: stroke.stroke, expiresAt: performance.now() + stroke.lifetime }])
+      return
+    }
     const previous = strokesRef.current
     const next = stroke.eraser ? eraseInk(previous, stroke.stroke.points, eraserRadius) : [...previous, stroke.stroke]
     if (next !== previous) {
@@ -460,6 +460,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   >
     <div className="paper" data-testid="paper" style={{ width: page.width, height: page.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
       <canvas ref={committed} data-testid="ink-canvas" aria-label="Notebook page" />
+      <TemporaryInk width={page.width} height={page.height} strokes={temporary} onExpire={ids => setTemporary(value => value.filter(entry => !ids.includes(entry.stroke.id)))} />
       <canvas ref={live} aria-hidden="true" />
       {tool === 'image' && <ImageSelection page={page} selectedId={selectedImageId} scale={view.scale} onSelect={onImageSelect} onChange={onImagesChange} onPreview={setImagePreview} />}
     </div>
