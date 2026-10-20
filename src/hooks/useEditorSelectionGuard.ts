@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react'
-import { PEN_TOUCH_GUARD_MS, suppressTouch } from '../input'
+import { PEN_TOUCH_GUARD_MS } from '../input'
 
 export function useEditorSelectionGuard(root: RefObject<HTMLElement | null>) {
   useEffect(() => {
@@ -7,10 +7,10 @@ export function useEditorSelectionGuard(root: RefObject<HTMLElement | null>) {
     if (!element) return
     document.documentElement.classList.add('writing-session')
     let penId: number | null = null
-    let lastPenAt = -Infinity
     let blockedClickAt = -Infinity
     let lastControlPointer: { type: string; at: number } | null = null
     const blockedContacts = new Set<number>()
+    const blockedTouches = new Set<number>()
     const targetInEditor = (event: Event) => {
       const target = event.target instanceof Element ? event.target : event.target instanceof Node ? event.target.parentElement : null
       return target
@@ -37,24 +37,23 @@ export function useEditorSelectionGuard(root: RefObject<HTMLElement | null>) {
       if (!writingSurface(target)) lastControlPointer = { type: event.pointerType, at: performance.now() }
       if (event.pointerType === 'pen') {
         clearSelection()
-        if (writingSurface(target)) { penId = event.pointerId; lastPenAt = performance.now() }
+        penId = writingSurface(target) ? event.pointerId : null
         blockedClickAt = -Infinity
       } else if (event.pointerType === 'mouse') blockedClickAt = -Infinity
       else if (event.pointerType === 'touch' && !writingSurface(target)) {
-        if (suppressTouch(penId !== null, lastPenAt, performance.now())) { blockedContacts.add(event.pointerId); block(event) }
-        else if (!blockedContacts.size) blockedClickAt = -Infinity
+        if (penId !== null) { blockedContacts.add(event.pointerId); block(event) }
+        else blockedClickAt = -Infinity
       }
     }
     const move = (event: PointerEvent) => {
       if (event.pointerType === 'pen' && (penId === event.pointerId || ((event.buttons & 1) && writingSurface(targetInEditor(event))))) {
-        lastPenAt = performance.now()
         if (event.buttons & 1) penId = event.pointerId
         else if (event.pressure === 0) penId = null
       }
       if (blockedContacts.has(event.pointerId) && event.pointerType === 'touch') block(event)
     }
     const end = (event: PointerEvent) => {
-      if (event.pointerType === 'pen' && penId === event.pointerId) { penId = null; lastPenAt = performance.now() }
+      if (event.pointerType === 'pen' && penId === event.pointerId) penId = null
       if (event.pointerType === 'touch' && blockedContacts.delete(event.pointerId)) { blockedClickAt = performance.now(); block(event) }
     }
     const click = (event: MouseEvent) => {
@@ -63,16 +62,26 @@ export function useEditorSelectionGuard(root: RefObject<HTMLElement | null>) {
       const pointerType = event instanceof PointerEvent ? event.pointerType : ''
       if (pointerType === 'mouse' || pointerType === 'pen' || (event.detail === 0 && pointerType !== 'touch')) return
       if (!pointerType && lastControlPointer && performance.now() - lastControlPointer.at < 1000 && ['mouse', 'pen'].includes(lastControlPointer.type)) return
-      if (suppressTouch(penId !== null, lastPenAt, performance.now()) || performance.now() - blockedClickAt < PEN_TOUCH_GUARD_MS) block(event)
+      if (penId !== null || performance.now() - blockedClickAt < PEN_TOUCH_GUARD_MS) block(event)
     }
     const touch = (event: TouchEvent) => {
       const target = targetInEditor(event)
       if (writingSurface(target) && !target?.closest('[data-native-scroll="true"]') && event.cancelable) event.preventDefault()
       if (Array.from(event.changedTouches).every(touch => 'touchType' in touch && touch.touchType === 'stylus')) return
-      if (penId === null && lastControlPointer?.type === 'pen' && performance.now() - lastControlPointer.at < 100) return
-      if (target && !writingSurface(target) && (blockedContacts.size > 0 || suppressTouch(penId !== null, lastPenAt, performance.now()) || performance.now() - blockedClickAt < PEN_TOUCH_GUARD_MS)) block(event)
+      if (!target || writingSurface(target)) return
+      const changed = Array.from(event.changedTouches)
+      if (event.type === 'touchstart' && penId !== null) {
+        for (const contact of changed) blockedTouches.add(contact.identifier)
+        block(event)
+      } else if (changed.some(contact => blockedTouches.has(contact.identifier))) {
+        if (event.type === 'touchend' || event.type === 'touchcancel') {
+          for (const contact of changed) blockedTouches.delete(contact.identifier)
+          blockedClickAt = performance.now()
+        }
+        block(event)
+      } else if (event.type === 'touchstart' && penId === null) blockedClickAt = -Infinity
     }
-    const blur = () => { if (penId !== null) { penId = null; lastPenAt = performance.now() } }
+    const blur = () => { penId = null; blockedContacts.clear(); blockedTouches.clear() }
     clearSelection()
     document.addEventListener('selectionchange', clearSelection)
     document.addEventListener('selectstart', reject, true)
@@ -85,6 +94,7 @@ export function useEditorSelectionGuard(root: RefObject<HTMLElement | null>) {
     window.addEventListener('click', click, true)
     window.addEventListener('touchstart', touch, { capture: true, passive: false })
     window.addEventListener('touchend', touch, { capture: true, passive: false })
+    window.addEventListener('touchcancel', touch, { capture: true, passive: false })
     window.addEventListener('blur', blur)
     return () => {
       document.documentElement.classList.remove('writing-session')
@@ -99,6 +109,7 @@ export function useEditorSelectionGuard(root: RefObject<HTMLElement | null>) {
       window.removeEventListener('click', click, true)
       window.removeEventListener('touchstart', touch, true)
       window.removeEventListener('touchend', touch, true)
+      window.removeEventListener('touchcancel', touch, true)
       window.removeEventListener('blur', blur)
     }
   }, [root])

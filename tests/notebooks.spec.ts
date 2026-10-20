@@ -208,7 +208,9 @@ test('clipboard permission failures are visible and offer the image-picker alter
   expect((await storedImages(page)).length).toBe(0)
   const field = page.getByRole('textbox', { name: 'System paste area' })
   await expect(field).toBeVisible()
+  await expect(field).toHaveAttribute('contenteditable', 'true')
   expect(await field.evaluate(element => getComputedStyle(element).webkitUserSelect)).toBe('text')
+  expect(await field.evaluate(element => element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))).toBe(true)
   const base64 = (await screenshotFixture(page)).toString('base64')
   await field.evaluate((element, base64) => {
     const data = new DataTransfer()
@@ -269,7 +271,8 @@ test('clipboard with no exposed pixels offers system Paste and rejects links wit
     data.setData('text/html', '<img src="https://clipboard-test.invalid/image.png">')
     element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
   })
-  await expect(page.getByRole('alert')).toContainText('Only text or a link')
+  await expect(page.getByRole('alert')).toContainText('no supported image pixels')
+  await expect(page.getByRole('alert')).toContainText('Formats received: text/html')
   expect(requests).toEqual([])
   expect(await storedImages(page)).toHaveLength(0)
   const base64 = (await screenshotFixture(page)).toString('base64')
@@ -278,6 +281,45 @@ test('clipboard with no exposed pixels offers system Paste and rejects links wit
     data.setData('text/html', `<img src="data:image/png;base64,${base64}">`)
     element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
   }, base64)
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+})
+
+test('keyboard image paste works while the image insertion dialog is open', async ({ page }) => {
+  await createNotebook(page, 'Image dialog paste')
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  await page.getByRole('button', { name: 'Image', exact: true }).click()
+  const base64 = (await screenshotFixture(page)).toString('base64')
+  await page.getByRole('dialog', { name: 'Insert image', exact: true }).evaluate((element, base64) => {
+    const data = new DataTransfer()
+    data.items.add(new File([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], 'image.png', { type: 'image/png' }))
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, base64)
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('a real headless Chromium image clipboard pastes into the rich fallback without a synthetic paste event', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Clipboard read/write permission overrides are supported in headless Chromium; physical Safari remains a device check.')
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await createNotebook(page, 'Native image clipboard')
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 120; canvas.height = 80
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#327769'; ctx.fillRect(0, 0, 120, 80)
+    const image = await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Image encoding failed')), 'image/png'))
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })])
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { read: async () => { throw new DOMException('Use native paste', 'NotAllowedError') } } })
+  })
+  await page.getByRole('button', { name: 'Add content', exact: true }).click()
+  await page.getByRole('button', { name: 'Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Paste from clipboard', exact: true }).click()
+  const target = page.getByRole('textbox', { name: 'System paste area' })
+  await expect(target).toBeFocused()
+  await page.keyboard.press('Control+v')
+  await expect.poll(async () => (await storedImages(page)).length).toBe(1)
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  await page.reload()
   await expect.poll(async () => (await storedImages(page)).length).toBe(1)
 })
 
