@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { mergeFolderStructure } from './folders'
 import { MAX_NOTEBOOK_PAGES, MAX_PDF_PAGES } from './limits'
+import { isBase64 } from './assets'
 
 export const PAGE_WIDTH = 794
 export const PAGE_HEIGHT = 1123
@@ -22,12 +23,15 @@ const strokeSchema = z.object({
   penStyle: z.enum(['ballpoint', 'pressure']).optional(),
   points: z.array(pointSchema).min(1),
 })
-const backgroundSchema = z.string().max(8_000_000).regex(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/)
+const backgroundSchema = z.string().max(8_000_000).refine(value => {
+  const header = /^data:image\/(?:png|jpeg);base64,/.exec(value)
+  return Boolean(header && isBase64(value.slice(header[0].length)))
+})
 const sourceAssetSchema = z.object({
   id: z.string().uuid(),
   kind: z.enum(['pdf', 'image']),
   mime: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']),
-  data: z.string().min(4).max(45_000_000).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  data: z.string().min(4).max(45_000_000).refine(isBase64),
   pageCount: z.number().int().min(1).max(MAX_PDF_PAGES),
 }).refine(asset => asset.kind === 'pdf' ? asset.mime === 'application/pdf' : asset.mime !== 'application/pdf' && asset.pageCount === 1, 'Invalid source asset type.')
 const placedImageSchema = z.object({

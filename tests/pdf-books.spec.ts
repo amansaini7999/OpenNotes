@@ -95,3 +95,42 @@ test('inserting a 1,000-page book preserves the existing notebook and rejects la
   await expect(page.getByRole('alert')).toContainText('up to 1,000 pages')
   await expect(page.getByRole('button', { name: 'Show page overview' })).toHaveText('Page 2 of 1001')
 })
+
+test('a 600-page scanned book uses bounded writing canvases and small sidebar previews', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.goto('./')
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  const jpeg = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 2048; canvas.height = 3072
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#194dcc'; context.fillRect(0, 0, canvas.width, canvas.height)
+    context.fillStyle = '#ffffff'; context.font = '100px sans-serif'; context.fillText('Scanned book fixture', 80, 200)
+    const data = canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+    canvas.width = 0; canvas.height = 0
+    return data
+  })
+  const pdf = await PDFDocument.create()
+  const image = await pdf.embedJpg(Buffer.from(jpeg, 'base64'))
+  for (let index = 0; index < 600; index++) pdf.addPage([400, 600]).drawImage(image, { x: 0, y: 0, width: 400, height: 600 })
+  await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'Scanned book.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) })
+  await expect(page.getByTestId('notebook-title')).toHaveText('Scanned book', { timeout: 60_000 })
+  await expect(page.getByTestId('pdf-page-loading')).toHaveCount(0, { timeout: 30_000 })
+  await expect.poll(async () => { const [r, g, b] = await centerColor(page); return r < 90 && g < 120 && b > 180 }).toBe(true)
+  const pixels = await page.getByTestId('ink-canvas').evaluate((canvas: HTMLCanvasElement) => canvas.width * canvas.height)
+  expect(pixels).toBeLessThanOrEqual(2_005_000)
+  expect(await page.evaluate(() => localStorage.getItem('opennotes-pdf-session'))).not.toBeNull()
+  if (!await page.getByRole('button', { name: 'Page 1', exact: true }).count()) await page.getByRole('button', { name: 'Show pages', exact: true }).click()
+  const thumbnail = page.getByRole('button', { name: 'Page 1', exact: true }).locator('image')
+  await expect(thumbnail).toHaveAttribute('href', /^data:image\/jpeg/, { timeout: 30_000 })
+  const size = await thumbnail.evaluate(async element => {
+    const image = new Image()
+    image.src = element.getAttribute('href')!
+    await image.decode()
+    return [image.naturalWidth, image.naturalHeight]
+  })
+  expect(size[0]).toBeLessThanOrEqual(240)
+  expect(size[1]).toBeLessThanOrEqual(320)
+  await page.getByRole('button', { name: 'Back to notebooks', exact: true }).click()
+  expect(await page.evaluate(() => localStorage.getItem('opennotes-pdf-session'))).toBeNull()
+})

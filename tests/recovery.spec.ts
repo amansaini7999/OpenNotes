@@ -1,0 +1,86 @@
+import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { createNotebook, createPage, emptyLibrary, readBackup } from '../src/model'
+import { createSourceAsset } from '../src/assets'
+
+test('recovery bypasses a broken 600-page book, exports notes, and restores access without deleting records', async ({ page }) => {
+  test.setTimeout(180_000)
+  const book = createNotebook('Problem book')
+  const bytes = new TextEncoder().encode('%PDF-unreadable-original-retained')
+  const source = createSourceAsset(bytes, 'pdf', 600)
+  book.sources = [source]
+  book.pages = Array.from({ length: 600 }, (_, index) => ({ ...createPage('plain'), source: { assetId: source.id, pageIndex: index } }))
+  book.pages[599].strokes = [{ id: crypto.randomUUID(), tool: 'pen', color: '#253a43', width: 3, points: [{ x: 40, y: 40, pressure: 0.5 }] }]
+  const healthy = createNotebook('Healthy notes')
+  await page.goto('./')
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'recovery.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...emptyLibrary(), notebooks: [book, healthy] })) })
+  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Restore complete:' })).toBeVisible()
+  const workerRequests: string[] = []
+  page.on('request', request => { if (/pdf\.worker/.test(request.url())) workerRequests.push(request.url()) })
+  await page.addInitScript(() => {
+    if (!location.search.includes('recovery=1')) return
+    const original = IDBObjectStore.prototype.getAll
+    IDBObjectStore.prototype.getAll = function (...args) {
+      if (['assets', 'pages', 'images'].includes(this.name)) throw new Error('Recovery must not load heavy records on startup')
+      return original.apply(this, args)
+    }
+  })
+  await page.goto(`./?recovery=1#notebook=${book.id}`)
+  await expect(page.getByRole('heading', { name: 'Recover your OpenNotes library' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Problem book', exact: true })).toBeVisible()
+  expect(workerRequests).toEqual([])
+  const originalDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download original file 1 from Problem book', exact: true }).click()
+  const originalPath = await (await originalDownload).path()
+  if (!originalPath) throw new Error('Original download missing')
+  expect(await readFile(originalPath)).toEqual(Buffer.from(bytes))
+  const backupDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download editable backup of Problem book', exact: true }).click()
+  const path = await (await backupDownload).path()
+  if (!path) throw new Error('Recovery backup missing')
+  const recovered = readBackup((await readFile(path)).toString())
+  expect(recovered.notebooks[0].pages).toHaveLength(600)
+  expect(recovered.notebooks[0].pages[599].strokes).toHaveLength(1)
+  expect(recovered.notebooks[0].sources[0].data).toBe(source.data)
+  await page.getByRole('button', { name: 'Keep Problem book out of library', exact: true }).click()
+  await page.getByRole('link', { name: 'Return to library', exact: true }).click()
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device', { timeout: 60_000 })
+  await expect(page.getByRole('button', { name: 'Open Healthy notes', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open Problem book', exact: true })).toHaveCount(0)
+  await page.getByLabel('Import PDF or OpenNotes backup').setInputFiles({ name: 'excluded.opennotes', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(recovered)) })
+  await page.getByRole('button', { name: 'Restore notebooks', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('kept closed in recovery')
+  await page.goto('./?recovery=1')
+  await expect(page.getByRole('heading', { name: 'Problem book', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Restore Problem book to library', exact: true }).click()
+  await page.getByRole('link', { name: 'Return to library', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open Problem book', exact: true })).toBeVisible({ timeout: 60_000 })
+  await page.evaluate(id => localStorage.setItem('opennotes-pdf-session', id), book.id)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Recover your OpenNotes library' })).toBeVisible()
+  await expect(page.getByTestId('ink-canvas')).toHaveCount(0)
+  expect(workerRequests).toEqual([])
+})
+
+test('recovery will not export or clear another editing window’s book marker', async ({ page, context }) => {
+  await page.goto('./')
+  await page.getByRole('button', { name: 'Create a notebook', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Notebook name' }).fill('Open elsewhere')
+  await page.getByRole('button', { name: 'Create notebook', exact: true }).click()
+  await expect(page.getByTestId('save-status')).toHaveText('Saved on this device')
+  await page.evaluate(() => localStorage.setItem('opennotes-pdf-session', 'other-window'))
+  const recovery = await context.newPage()
+  await recovery.goto('./?recovery=1')
+  await recovery.getByRole('button', { name: 'Download editable backup of Open elsewhere', exact: true }).click()
+  await expect(recovery.getByRole('alert')).toContainText('Close the other OpenNotes editing window')
+  await recovery.getByRole('link', { name: 'Return to library', exact: true }).click()
+  await expect(recovery.getByRole('alert')).toContainText('Close the other OpenNotes editing window')
+  expect(await recovery.evaluate(() => localStorage.getItem('opennotes-pdf-session'))).toBe('other-window')
+  await page.close()
+  await recovery.getByRole('link', { name: 'Return to library', exact: true }).click()
+  await expect(recovery.getByTestId('save-status')).toHaveText('Saved on this device')
+  await expect(recovery.getByRole('button', { name: 'Open Open elsewhere', exact: true })).toBeVisible()
+  expect(await recovery.evaluate(() => localStorage.getItem('opennotes-pdf-session'))).toBeNull()
+})

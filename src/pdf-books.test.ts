@@ -25,7 +25,7 @@ describe('PDF books and bounded preview decoding', () => {
     vi.stubGlobal('document', document)
     vi.stubGlobal('window', { document })
   })
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
   it('imports exactly 1,000 pages without rasterizing them and preserves the last page in backup validation', async () => {
     const imported = await importPdfPages(new File(['%PDF-1.4'], 'book.pdf'), () => undefined)
     expect(imported.pages).toHaveLength(1000)
@@ -78,5 +78,34 @@ describe('PDF books and bounded preview decoding', () => {
     await expect(store.load(asset, 1, new AbortController().signal)).resolves.toContain('data:image/jpeg')
     await store.close()
     await expect(store.load(asset, 2, new AbortController().signal)).rejects.toThrow('no longer needed')
+  })
+  it('releases the import decoder before allocating the base64 original', async () => {
+    let destroyed = false
+    mocks.destroy.mockImplementationOnce(async () => { destroyed = true })
+    const encode = btoa
+    vi.spyOn(globalThis, 'btoa').mockImplementation(data => {
+      expect(destroyed).toBe(true)
+      return encode(data)
+    })
+    await importPdfPages(new File(['%PDF'], 'book.pdf'), () => undefined)
+  })
+  it('renders thumbnails at thumbnail resolution rather than keeping full-page rasters for the sidebar', async () => {
+    const sizes: number[][] = []
+    const document = { createElement: () => {
+      const canvas = { width: 0, height: 0, getContext: () => ({}), toDataURL: () => { sizes.push([canvas.width, canvas.height]); return 'data:image/jpeg;base64,YQ==' } }
+      return canvas
+    } }
+    vi.stubGlobal('document', document); vi.stubGlobal('window', { document })
+    const store = createPdfPreviewStore()
+    const source = createSourceAsset(new TextEncoder().encode('%PDF'), 'pdf', 600)
+    const signal = new AbortController().signal
+    await store.load(source, 0, signal, 'thumbnail')
+    await store.load(source, 0, signal, 'page')
+    expect(sizes[0][0]).toBeLessThanOrEqual(240)
+    expect(sizes[0][1]).toBeLessThanOrEqual(320)
+    expect(sizes[1][0]).toBeGreaterThan(sizes[0][0])
+    expect(sizes[1][1]).toBeGreaterThan(sizes[0][1])
+    expect(mocks.render).toHaveBeenCalledTimes(2)
+    await store.close()
   })
 })
