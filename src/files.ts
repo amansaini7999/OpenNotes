@@ -26,12 +26,14 @@ export async function importPdfPages(file: File, progress: (message: string) => 
   if (file.size > 30 * 1024 * 1024) throw new Error('Choose a PDF smaller than 30 MB. Split larger files before importing.')
   const bytes = new Uint8Array(await file.arrayBuffer())
   const task = await openPdfTask(bytes.slice())
+  const pages: NotePage[] = []
+  const sourceId = crypto.randomUUID()
+  let count = 0
   try {
     const pdf = await task.promise
     if (pdf.numPages > MAX_PDF_PAGES) throw new Error(`PDF imports support up to ${MAX_PDF_PAGES.toLocaleString('en-US')} pages per file. Split the PDF into smaller documents.`)
     if (pdf.numPages > availablePages) throw new Error(`Not enough page capacity for this PDF. You can insert ${availablePages} more pages in this operation.`)
-    const source = createSourceAsset(bytes, 'pdf', pdf.numPages)
-    const pages: NotePage[] = []
+    count = pdf.numPages
     for (let i = 1; i <= pdf.numPages; i++) {
       progress(`Importing PDF · page ${i} of ${pdf.numPages}`)
       const pdfPage = await pdf.getPage(i)
@@ -52,14 +54,14 @@ export async function importPdfPages(file: File, progress: (message: string) => 
           page.background = canvas.toDataURL('image/jpeg', 0.88)
         } finally { canvas.width = 0; canvas.height = 0 }
       }
-      page.source = { assetId: source.id, pageIndex: i - 1 }
+      page.source = { assetId: sourceId, pageIndex: i - 1 }
       pages.push(page)
       pdfPage.cleanup()
     }
-    return { pages, sources: [source] }
   } finally {
     await task.destroy()
   }
+  return { pages, sources: [{ ...createSourceAsset(bytes, 'pdf', count), id: sourceId }] }
 }
 
 async function importImagePage(file: File): Promise<ImportedPages> {

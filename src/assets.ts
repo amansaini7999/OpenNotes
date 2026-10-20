@@ -1,5 +1,16 @@
 import type { SourceAsset } from './model'
 
+export function isBase64(data: string): boolean {
+  let end = data.length
+  if (data[end - 1] === '=') end--
+  if (data[end - 1] === '=') end--
+  if (!end) return false
+  for (let index = 0; index < end; index += 65536) {
+    if (!/^[A-Za-z0-9+/]+$/.test(data.slice(index, Math.min(index + 65536, end)))) return false
+  }
+  return true
+}
+
 export function encodeBase64(bytes: Uint8Array): string {
   const chunks: string[] = []
   for (let index = 0; index < bytes.length; index += 32768) {

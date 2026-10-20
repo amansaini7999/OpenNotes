@@ -13,10 +13,11 @@ export async function openPdfTask(bytes: Uint8Array): Promise<PDFDocumentLoading
     standardFontDataUrl: `${import.meta.env.BASE_URL}pdfjs/standard_fonts/`,
     wasmUrl: `${import.meta.env.BASE_URL}pdfjs/wasm/`,
     iccUrl: `${import.meta.env.BASE_URL}pdfjs/iccs/`,
+    canvasMaxAreaInBytes: 4_000_000,
   })
 }
 
-export type PdfPreviewLoader = (source: SourceAsset, pageIndex: number, signal: AbortSignal) => Promise<string>
+export type PdfPreviewLoader = (source: SourceAsset, pageIndex: number, signal: AbortSignal, kind?: 'page' | 'thumbnail') => Promise<string>
 
 export function createPdfPreviewStore() {
   const documents = new Map<string, Promise<PDFDocumentLoadingTask>>()
@@ -26,10 +27,10 @@ export function createPdfPreviewStore() {
   const check = (signal: AbortSignal) => {
     if (closed || signal.aborted) throw new DOMException('PDF preview no longer needed.', 'AbortError')
   }
-  const load: PdfPreviewLoader = (source, pageIndex, signal) => {
+  const load: PdfPreviewLoader = (source, pageIndex, signal, kind = 'page') => {
     const result = queue.then(async () => {
       check(signal)
-      const key = `${source.id}:${pageIndex}`
+      const key = `${source.id}:${pageIndex}:${kind}`
       const cached = previews.get(key)
       if (cached) {
         previews.delete(key); previews.set(key, cached)
@@ -50,7 +51,7 @@ export function createPdfPreviewStore() {
       try {
         check(signal)
         const original = page.getViewport({ scale: 1 })
-        const viewport = page.getViewport({ scale: Math.min(1200 / original.width, 1600 / original.height) })
+        const viewport = page.getViewport({ scale: Math.min((kind === 'thumbnail' ? 240 : 1200) / original.width, (kind === 'thumbnail' ? 320 : 1600) / original.height) })
         canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height)
         const context = canvas.getContext('2d')
         if (!context) throw new Error('The PDF preview could not allocate a canvas. Close other tabs and retry.')

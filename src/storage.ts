@@ -1,7 +1,7 @@
 import { openDB, type DBSchema } from 'idb'
 import { backupSchema, emptyLibrary, type Folder, type Library, type Notebook, type NotePage, type SourceAsset } from './model'
 
-interface NotesDB extends DBSchema {
+export interface NotesDB extends DBSchema {
   notebooks: { key: string; value: Omit<Notebook, 'pages' | 'sources'> & { pageIds: string[]; sourceIds?: string[] } }
   pages: { key: string; value: Omit<NotePage, 'background'> }
   images: { key: string; value: string }
@@ -23,19 +23,29 @@ export function createStorage(name = 'opennotes-v1') {
   let queue: Promise<void> = Promise.resolve()
   let persisted = emptyLibrary()
   return {
-    async load(): Promise<Library> {
+    async load(excluded: ReadonlySet<string> = new Set()): Promise<Library> {
       const db = await database
       const tx = db.transaction(['notebooks', 'pages', 'images', 'assets', 'folders'], 'readonly')
-      const [folders, records, savedPages, savedAssets, imageIds, savedImages] = await Promise.all([
+      const [folders, allRecords] = await Promise.all([
         tx.objectStore('folders').getAll(),
         tx.objectStore('notebooks').getAll(),
-        tx.objectStore('pages').getAll(),
-        tx.objectStore('assets').getAll(),
-        tx.objectStore('images').getAllKeys(),
-        tx.objectStore('images').getAll(),
       ])
-      const pagesById = new Map(savedPages.map(page => [page.id, page]))
-      const assetsById = new Map(savedAssets.map(asset => [asset.id, asset]))
+      const records = allRecords.filter(record => !excluded.has(record.id))
+      const pageIds = [...new Set(records.flatMap(record => record.pageIds))]
+      const assetIds = [...new Set(records.flatMap(record => record.sourceIds ?? []))]
+      const [savedPages, savedAssets, imageIds, savedImages] = excluded.size
+        ? await Promise.all([
+          Promise.all(pageIds.map(id => tx.objectStore('pages').get(id))),
+          Promise.all(assetIds.map(id => tx.objectStore('assets').get(id))),
+          Promise.resolve(pageIds),
+          Promise.all(pageIds.map(id => tx.objectStore('images').get(id))),
+        ])
+        : await Promise.all([
+          tx.objectStore('pages').getAll(), tx.objectStore('assets').getAll(),
+          tx.objectStore('images').getAllKeys(), tx.objectStore('images').getAll(),
+        ])
+      const pagesById = new Map(savedPages.filter(page => page !== undefined).map(page => [page.id, page]))
+      const assetsById = new Map(savedAssets.filter(asset => asset !== undefined).map(asset => [asset.id, asset]))
       const imagesById = new Map(imageIds.map((id, index) => [id, savedImages[index]]))
       const notebooks = records.map(({ pageIds, sourceIds = [], ...record }) => ({
         ...record,

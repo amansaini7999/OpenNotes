@@ -152,6 +152,30 @@ Undo/redo retains up to 50 actions per page during the session.
 
 ## Saving and backups
 
+### If a book crashes the app
+
+Do not uninstall OpenNotes or clear website data. Close the app and its other
+tabs, then open [Recovery](https://amansaini7999.github.io/OpenNotes/?recovery=1)
+in the same browser and origin as your saved notes. Installed-app storage may
+be separate from a Safari tab's storage; a previous interrupted book session
+also opens recovery automatically when that app reopens.
+
+Recovery lists notebook metadata without loading original PDFs or page
+previews. Download an **editable backup** of each important notebook to retain
+handwriting, or download an original source file separately. Confirm the
+downloads exist in Files before changing any storage settings.
+
+**Keep ... out of library** excludes the problem notebook from normal loading
+without deleting its pages, originals or annotations. You can restore it from
+the recovery screen later. Normal **Back up everything** includes only visible
+notebooks while exclusions are active; export excluded notebooks separately
+from recovery. Close other editing windows before a recovery export.
+
+Recovery is also entered when a large-book session did not close cleanly;
+this is a precaution, not proof that data was lost. A normal library return
+does not automatically reopen the book. Page-count support is not a guarantee
+that every scanned PDF fits a particular device's memory.
+
 **Saved on this device** means an IndexedDB transaction completed. It does not
 mean a file was saved to Files, Google Drive, or another external folder.
 Strokes commit on release; sampled pen ink is retained on handled cancellation

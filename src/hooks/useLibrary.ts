@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Library } from '../model'
 import { createStorage } from '../storage'
+import { quarantinedNotebookIds } from '../recovery'
 
 type SaveStatus = 'loading' | 'saving' | 'saved' | 'error'
 type LibraryUpdate = (library: Library) => Library
@@ -9,9 +10,11 @@ export function useLibrary() {
   const [library, setLibrary] = useState<Library | null>(null)
   const [status, setStatus] = useState<SaveStatus>('loading')
   const [error, setError] = useState('')
+  const [excludedCount, setExcludedCount] = useState(0)
   const current = useRef<Library | null>(null)
   const storage = useRef<ReturnType<typeof createStorage> | null>(null)
   const revision = useRef(0)
+  const excludedIds = useRef(new Set<string>())
 
   useEffect(() => {
     let mounted = true
@@ -31,11 +34,14 @@ export function useLibrary() {
       const db = createStorage()
       storage.current = db
       try {
-        const value = await db.load()
+        const excluded = quarantinedNotebookIds()
+        excludedIds.current = new Set(excluded)
+        const value = await db.load(new Set(excluded))
         if (!mounted) return
         current.current = value
         setLibrary(value)
         setStatus('saved')
+        setExcludedCount(excluded.length)
         await held
       } finally {
         await db.close()
@@ -65,6 +71,7 @@ export function useLibrary() {
   const update = useCallback((change: LibraryUpdate) => {
     if (!current.current) throw new Error('Notebooks are not loaded; editing is unavailable.')
     const next = change(current.current)
+    if (next.notebooks.some(note => excludedIds.current.has(note.id))) throw new Error('This notebook is kept closed in recovery. Restore it to the library from recovery before importing another version with the same identity.')
     current.current = next
     setLibrary(next)
     return save(next)
@@ -75,5 +82,5 @@ export function useLibrary() {
     else location.reload()
   }, [save])
 
-  return { library, status, error, update, retry }
+  return { library, status, error, update, retry, excludedCount }
 }

@@ -194,6 +194,10 @@ h2 { margin: 0; font: 400 24px Georgia,serif; letter-spacing: -.4px; }
 .pdf-page-loading { position: absolute; z-index: 1; top: 24px; left: 24px; padding: 8px 12px; background: #fffefb; border-radius: 6px; font-size: 12px; color: #597266; pointer-events: none; }
 .system-paste-target { min-height: 100px; padding: 12px; border: 1px solid #d6ddcc; border-radius: 7px; background: #fafbf5; font-size: 14px; overflow-wrap: anywhere; }
 .system-paste-target:empty::before { content: attr(data-placeholder); color: #74816d; pointer-events: none; }
+.recovery-library { max-width: 850px; margin: 0 auto; padding: 28px 20px; overflow-y: auto; height: 100%; }
+.recovery-library p { line-height: 1.6; }
+.recovery-notebook { padding: 18px; margin: 20px 0; border: 1px solid #d6ddcc; border-radius: 10px; background: #fffefb; }
+.recovery-notebook h2 { overflow-wrap: anywhere; }
 .ink-viewport { flex: 1; min-height: 100px; overflow: hidden; position: relative; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: crosshair; overscroll-behavior: contain; }
 .tool-hand { cursor: grab; }
 .tool-hand:active { cursor: grabbing; }

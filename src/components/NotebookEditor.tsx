@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, Eye, FileDown, FilePlus2, FileUp, Hand, Highlighter, ImagePlus, ClipboardPaste, MousePointer2, Wand, LoaderCircle, Maximize, Minus, PanelLeft, PenLine, Plus, Redo2, Settings2, SlidersHorizontal, Undo2, X } from 'lucide-react'
 import { colors, createPage, insertPagesAfter, dotRadius, isDotStroke, type Notebook, type Stroke, type Tool, type NotePage, type Template, type PlacedImage, type SourceAsset, type PenStyle } from '../model'
 import { InkCanvas } from './InkCanvas'
@@ -17,6 +17,7 @@ import { clipboardFormats, pastedImages, readClipboardImages } from '../clipboar
 import { MAX_NOTEBOOK_PAGES } from '../limits'
 import { createPdfPreviewStore, type PdfPreviewLoader } from '../pdf-source'
 import { usePageBackground } from '../hooks/usePageBackground'
+import { PDF_SESSION_KEY } from '../recovery'
 
 interface Props {
   notebook: Notebook
@@ -39,10 +40,22 @@ const tools: { id: Tool; name: string; icon: typeof PenLine; shortcut: string }[
 
 export function NotebookEditor({ notebook, onUpdate, onBack, onPdf, onError, saveIndicator }: Props) {
   const editor = useRef<HTMLElement>(null)
+  const bookSession = notebook.sources.some(source => source.kind === 'pdf' && source.pageCount > 50)
+  useLayoutEffect(() => {
+    if (!bookSession) return
+    const clear = () => {
+      try { if (localStorage.getItem(PDF_SESSION_KEY) === notebook.id) localStorage.removeItem(PDF_SESSION_KEY) }
+      catch (cause: unknown) { onError(cause instanceof Error ? cause.message : 'The book recovery marker could not be cleared.') }
+    }
+    try { localStorage.setItem(PDF_SESSION_KEY, notebook.id) }
+    catch (cause: unknown) { onError(cause instanceof Error ? cause.message : 'The book recovery marker could not be saved.') }
+    window.addEventListener('beforeunload', clear)
+    return () => { window.removeEventListener('beforeunload', clear); clear() }
+  }, [bookSession, notebook.id, onError])
   const pdfPreviews = useRef<ReturnType<typeof createPdfPreviewStore> | null>(null)
-  const loadPdfPreview: PdfPreviewLoader = useCallback((source, index, signal) => {
+  const loadPdfPreview: PdfPreviewLoader = useCallback((source, index, signal, kind) => {
     if (!pdfPreviews.current) pdfPreviews.current = createPdfPreviewStore()
-    return pdfPreviews.current.load(source, index, signal)
+    return pdfPreviews.current.load(source, index, signal, kind)
   }, [])
   useEffect(() => () => {
     const store = pdfPreviews.current
@@ -406,7 +419,7 @@ function PagePreview({ page, sources, loadPdfPreview, onError }: { page: NotePag
     observer.observe(element.current)
     return () => observer.disconnect()
   }, [page.background, page.source])
-  const background = usePageBackground(page, sources, loadPdfPreview, onError, visible)
+  const background = usePageBackground(page, sources, loadPdfPreview, onError, visible, 'thumbnail')
   return <svg ref={element} viewBox={`0 0 ${page.width} ${page.height}`} className={`page-preview ${page.template}`} aria-hidden="true">
     <rect width={page.width} height={page.height} fill="#fffefb" />
     {background && <image href={background} width={page.width} height={page.height} />}

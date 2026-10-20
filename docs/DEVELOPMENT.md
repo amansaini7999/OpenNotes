@@ -38,6 +38,7 @@ separate from storage, file processing, and browser lifecycle effects.
 | [navigation.ts](../src/navigation.ts) | Device defaults and page-turn recognition |
 | [images.ts](../src/images.ts) | Proportional inline-image placement and bounds |
 | [backup.ts](../src/backup.ts) | SHA-256 content identity and reviewed backup restore |
+| [recovery.ts](../src/recovery.ts) | Metadata-only recovery, chunked exports and reversible notebook exclusions |
 | [persistence.ts](../src/persistence.ts) | Actual browser persistence capability/grant checks |
 | [hooks/](../src/hooks/) | Storage coordination, PWA and viewport lifecycle |
 | [components/](../src/components/) | Library, editor, writing surface, and dialogs |
@@ -54,6 +55,17 @@ store geometry and original bytes rather than eager raster previews.
 The editor decodes only visible book pages/thumbnails, serializes rendering,
 cancels obsolete requests, caches 12 previews and releases its decoder on exit.
 Startup uses bulk store reads rather than issuing thousands of per-page requests.
+Recovery (`?recovery=1`) bypasses the normal library loader and PDF decoding.
+Excluded notebooks are not loaded or deleted by healthy-library saves.
+Recovery exports coordinate with the writer lock; a book-session marker prevents
+automatic reopening after an unclean exit. Original-file encoding runs after
+the import decoder is destroyed, and sidebar previews have a separate small
+raster size. Canvas memory budgets reduce book rendering allocations, but
+physical-device testing with realistic scanned documents is still necessary.
+Book writing canvases target roughly 2 million pixels per layer; thumbnail
+previews are at most 240 by 320 pixels. PDF.js image-resizing limits are set
+explicitly where the browser supports worker-side OffscreenCanvas conversion.
+These are preview budgets, not a limit on original source or exported quality.
 The current startup path still loads all notebook data, so lazy loading remains
 an area for improvement with large libraries.
 

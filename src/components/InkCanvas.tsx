@@ -190,7 +190,9 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
   useLayoutEffect(() => {
     strokesRef.current = page.strokes
     if (!committed.current || !live.current) return
-    const ratio = Math.max(0.5, Math.min((devicePixelRatio || 1) * renderScale, 2))
+    const book = page.source && sources.some(source => source.id === page.source!.assetId && source.kind === 'pdf' && source.pageCount > 50)
+    const pixelLimit = book ? 2_000_000 : 4_000_000
+    const ratio = Math.max(0.1, Math.min((devicePixelRatio || 1) * renderScale, 2, Math.sqrt(pixelLimit / (page.width * page.height))))
     for (const canvas of [committed.current, live.current]) {
       const width = Math.ceil(page.width * ratio), height = Math.ceil(page.height * ratio)
       if (canvas.width !== width || canvas.height !== height) {
@@ -203,7 +205,7 @@ export function InkCanvas({ page, sources, tool, color, width, eraserRadius, pen
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     const rendered = imagePreview ? { ...page, images: page.images.map(image => image.id === imagePreview.id ? imagePreview : image) } : page
     paintPage(ctx, rendered, background?.source === pageBackground ? background?.image : undefined, inlineImages)
-  }, [page, pageBackground, background, inlineImages, imagePreview, onError, renderScale])
+  }, [page, pageBackground, background, inlineImages, imagePreview, onError, renderScale, sources])
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
   useLayoutEffect(() => {

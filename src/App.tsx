@@ -16,7 +16,7 @@ type Modal = 'create' | 'help' | 'delete' | null
 
 export default function App() {
   useViewportHeight()
-  const { library, status, error: storageError, update, retry } = useLibrary()
+  const { library, status, error: storageError, update, retry, excludedCount } = useLibrary()
   const persistence = usePersistence(Boolean(library?.notebooks.length))
   const pwa = usePwa()
   const [activeId, setActiveId] = useState<string | null>(() => new URLSearchParams(location.hash.slice(1)).get('notebook'))
@@ -135,6 +135,7 @@ export default function App() {
       </div>}
       {(storageError || error || pwa.registrationError) && <div className="message error" role="alert"><span>{storageError || error || pwa.registrationError}</span>{storageError ? <><button onClick={retry}>Retry save</button><button disabled={!library} onClick={() => library && exportBackup(library)}>Export backup</button></> : error ? <button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button> : <button onClick={() => setModal('help')}>Offline help</button>}</div>}
       {notice && <div className="message notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}
+      {excludedCount > 0 && <div className="message notice" role="status"><span>Some notebooks are kept out of this library for recovery. Back up everything includes only the notebooks shown here. <a href="?recovery=1">Export or restore excluded notebooks</a>.</span></div>}
       {pwa.updateReady && <div className="message notice"><span>An update is ready. Finish writing and wait for “Saved on this device”, then close all OpenNotes tabs and reopen to update.</span></div>}
       {library ? active ? <NotebookEditor key={active.id} notebook={active} onUpdate={editNotebook} onBack={() => setActiveId(null)} onPdf={() => void runTask('Preparing PDF…', () => exportPdf(active, setBusy))} onError={showError} saveIndicator={saveIndicator} />
         : <FolderLibrary library={library} folderId={selectedFolderId} onFolder={setFolderId} onUpdate={update} onError={showError} onOpen={setActiveId} onCreate={() => { setName(''); setModal('create') }} onImport={() => fileInput.current?.click()} onDelete={id => { setDeletingId(id); setModal('delete') }} />
